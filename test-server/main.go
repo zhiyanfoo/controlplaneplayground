@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	port = ":50051"
+	port = "127.0.0.1:50051"
 )
 
 // server is used to implement test.TestServiceServer.

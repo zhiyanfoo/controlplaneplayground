@@ -11,3 +11,4 @@ go build -o server main.go
 
 echo "Running test server... (Press Ctrl+C to stop)"
 ./server 
+ 
