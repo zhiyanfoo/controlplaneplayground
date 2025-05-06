@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"strings"
 	"time"
 
 	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
@@ -14,11 +13,8 @@ import (
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	http_conn "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
-	clusterservice "github.com/envoyproxy/go-control-plane/envoy/service/cluster/v3"
 	discoveryservice "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
-	endpointservice "github.com/envoyproxy/go-control-plane/envoy/service/endpoint/v3"
-	listenerservice "github.com/envoyproxy/go-control-plane/envoy/service/listener/v3"
-	routeservice "github.com/envoyproxy/go-control-plane/envoy/service/route/v3"
+	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	xdscache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	resourcev3 "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	serverv3 "github.com/envoyproxy/go-control-plane/pkg/server/v3"
@@ -32,16 +28,21 @@ import (
 )
 
 const (
-	gRPCport        = 18000
-	XDSHost         = "localhost"
-	upstreamPort    = 50051 // Port of the test gRPC server
-	listenerName    = "listener_0"
-	listenerPort    = 10000
-	routeName       = "local_route"
-	clusterName     = "test_cluster"
-	upstreamHost    = "127.0.0.1"
-	nodeID          = "test-id"
+	gRPCport     = 18000
+	XDSHost      = "localhost"
+	upstreamPort = 50051 // Port of the test gRPC server
+	listenerName = "listener_0"
+	listenerPort = 10000
+	routeName    = "local_route"
+	clusterName  = "test_cluster"
+	upstreamHost = "127.0.0.1"
+	nodeID       = "test-id" // Node ID served by this control plane
+
+	// Resource Type URLs
 	ListenerType    = resourcev3.ListenerType
+	RouteType       = resourcev3.RouteType
+	ClusterType     = resourcev3.ClusterType
+	EndpointType    = resourcev3.EndpointType
 	APITypePrefix   = "type.googleapis.com/envoy.config."
 	fabricAuthority = ""
 )
@@ -55,6 +56,7 @@ func makeCluster(clusterName string) *cluster.Cluster {
 		ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_STRICT_DNS},
 		LbPolicy:             cluster.Cluster_ROUND_ROBIN,
 		LoadAssignment:       makeEndpoint(clusterName, upstreamHost, upstreamPort),
+		// TypedExtensionProtocolOptions removed for simplicity
 	}
 }
 
@@ -127,7 +129,7 @@ func makeHTTPListener(listenerName string, routeName string) *listener.Listener 
 			Address: &core.Address_SocketAddress{
 				SocketAddress: &core.SocketAddress{
 					Protocol:      core.SocketAddress_TCP,
-					Address:       "0.0.0.0",
+					Address:       "127.0.0.1", // Listen on loopback
 					PortSpecifier: &core.SocketAddress_PortValue{PortValue: listenerPort},
 				},
 			},
@@ -156,67 +158,72 @@ func MustAny(p proto.Message) *anypb.Any {
 	return anypb
 }
 
-// --- Listener URI Helper ---
-
-// URI defines the unique name of an xDS resource.
-type URI string
-
-func listenerUri(name, namespace string) string {
-	listenerType := strings.TrimPrefix(ListenerType, APITypePrefix)
-	uri := "xdstp://" + fabricAuthority + "/" + listenerType + "/" + name
-	if namespace != "" {
-		uri += "." + namespace
-	}
-	return uri
-}
-
 // --- Main Function ---
 
 func main() {
-	// Use LinearCache with listenerUri
-	cache := xdscache.NewLinearCache(listenerUri("default-listener", "default-ns"))
+	// --- Initialize Caches ---
+	listenerCache := xdscache.NewLinearCache(ListenerType)
+	clusterCache := xdscache.NewLinearCache(ClusterType)
+	routeCache := xdscache.NewLinearCache(RouteType)
+	endpointCache := xdscache.NewLinearCache(EndpointType)
 
-	// Create resources
+	// --- Create Resources ---
 	l := makeHTTPListener(listenerName, routeName)
 	r := makeRoute(routeName, clusterName)
 	c := makeCluster(clusterName)
 	e := makeEndpoint(clusterName, upstreamHost, upstreamPort)
 
-	// Update cache - LinearCache UpdateResource expects (resourceType string, resource proto.Message)
-	if err := cache.UpdateResource(resourcev3.ListenerType, l); err != nil {
-		log.Fatalf("failed to update listener resource: %v", err)
-	}
-	if err := cache.UpdateResource(resourcev3.RouteType, r); err != nil {
-		log.Fatalf("failed to update route resource: %v", err)
-	}
-	if err := cache.UpdateResource(resourcev3.ClusterType, c); err != nil {
-		log.Fatalf("failed to update cluster resource: %v", err)
-	}
-	if err := cache.UpdateResource(resourcev3.EndpointType, e); err != nil {
-		log.Fatalf("failed to update endpoint resource: %v", err)
+	// --- Populate Linear Caches ---
+	if err := listenerCache.UpdateResource(listenerName, l); err != nil {
+		log.Fatalf("failed to update route resource in route cache: %v", err)
 	}
 
-	log.Printf("Updated LinearCache with initial resources (LDS: %s, RDS: %s, CDS: %s, EDS: %s)", listenerName, routeName, clusterName, clusterName)
+	if err := routeCache.UpdateResource(routeName, r); err != nil {
+		log.Fatalf("failed to update route resource in route cache: %v", err)
+	}
+
+	if err := clusterCache.UpdateResource(clusterName, c); err != nil {
+		log.Fatalf("failed to update route resource in route cache: %v", err)
+	}
+
+	if err := endpointCache.UpdateResource(clusterName, e); err != nil {
+		log.Fatalf("failed to update endpoint resource in endpoint cache: %v", err)
+	}
+
+	log.Printf("Updated Linear caches (RDS: %s, EDS: %s)", routeName, clusterName)
+
+	// --- Create MuxCache ---
+	muxCache := &xdscache.MuxCache{
+		Classify: func(req *xdscache.Request) string {
+			// Use the TypeUrl to classify requests
+			return req.TypeUrl
+		},
+		Caches: map[string]xdscache.Cache{
+			ListenerType: listenerCache, // Map LDS type to listener cache
+			ClusterType:  clusterCache,  // Map CDS type to cluster cache
+			RouteType:    routeCache,      // Map RDS type to route cache
+			EndpointType: endpointCache,   // Map EDS type to endpoint cache
+		},
+	}
 
 	ctx := context.Background()
 	// Use testv3 callbacks for debugging
 	cb := &testv3.Callbacks{Debug: true}
-	srv := serverv3.NewServer(ctx, cache, cb)
+	// Use the MuxCache for the server
+	srv := serverv3.NewServer(ctx, muxCache, cb)
 
+	// --- Start gRPC Server ---
 	var grpcServer *grpc.Server
 	grpcServer = grpc.NewServer()
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", gRPCport))
+	// Listen on loopback only
+	lis, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", gRPCport))
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	discoveryservice.RegisterAggregatedDiscoveryServiceServer(grpcServer, srv)
-	endpointservice.RegisterEndpointDiscoveryServiceServer(grpcServer, srv)
-	clusterservice.RegisterClusterDiscoveryServiceServer(grpcServer, srv)
-	routeservice.RegisterRouteDiscoveryServiceServer(grpcServer, srv)
-	listenerservice.RegisterListenerDiscoveryServiceServer(grpcServer, srv)
 
-	log.Printf("xDS control plane listening on %d\n", gRPCport)
+	log.Printf("xDS control plane (MuxCache) listening on %d\n", gRPCport)
 	go func() {
 		if err = grpcServer.Serve(lis); err != nil {
 			log.Fatal(err)
