@@ -5,14 +5,17 @@ dynamic_resources:
     grpc_services:
       - envoy_grpc:
           cluster_name: xds_cluster
+    set_node_on_first_message_only: true
 
   lds_config:
     resource_api_version: V3
     ads: {}
+    initial_fetch_timeout: 1s
 
   cds_config:
     resource_api_version: V3
     ads: {}
+    initial_fetch_timeout: 1s
 
 node:
   id: test-id
@@ -42,5 +45,5 @@ static_resources:
         - endpoint:
             address:
               socket_address:
-                address: localhost
+                address: 127.0.0.1
                 port_value: 18000 # Control plane gRPC port 

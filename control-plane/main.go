@@ -7,19 +7,21 @@ import (
 	"net"
 	"time"
 
+	accesslog "github.com/envoyproxy/go-control-plane/envoy/config/accesslog/v3"
 	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
-	http_conn "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	file_accesslog "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/file/v3"
+	router "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
+	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	upstreamhttp "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
 	discoveryservice "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
-	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	xdscache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	resourcev3 "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	serverv3 "github.com/envoyproxy/go-control-plane/pkg/server/v3"
 	testv3 "github.com/envoyproxy/go-control-plane/pkg/test/v3"
-	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
@@ -53,10 +55,22 @@ func makeCluster(clusterName string) *cluster.Cluster {
 	return &cluster.Cluster{
 		Name:                 clusterName,
 		ConnectTimeout:       durationpb.New(5 * time.Second),
-		ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_STRICT_DNS},
-		LbPolicy:             cluster.Cluster_ROUND_ROBIN,
-		LoadAssignment:       makeEndpoint(clusterName, upstreamHost, upstreamPort),
-		// TypedExtensionProtocolOptions removed for simplicity
+		ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_EDS},
+		EdsClusterConfig: &cluster.Cluster_EdsClusterConfig{
+			EdsConfig: makeConfigSource(),
+		},
+		LbPolicy: cluster.Cluster_ROUND_ROBIN,
+		TypedExtensionProtocolOptions: map[string]*anypb.Any{
+			"envoy.extensions.upstreams.http.v3.HttpProtocolOptions": MustAny(&upstreamhttp.HttpProtocolOptions{
+				UpstreamProtocolOptions: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig_{
+					ExplicitHttpConfig: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig{
+						ProtocolConfig: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig_Http2ProtocolOptions{
+							Http2ProtocolOptions: &core.Http2ProtocolOptions{},
+						},
+					},
+				},
+			}),
+		},
 	}
 }
 
@@ -92,7 +106,6 @@ func makeRoute(routeName string, clusterName string) *route.RouteConfiguration {
 			Routes: []*route.Route{{
 				Match: &route.RouteMatch{
 					PathSpecifier: &route.RouteMatch_Prefix{Prefix: "/"}, // Match any path
-					Grpc:          &route.RouteMatch_GrpcRouteMatchOptions{},
 				},
 				Action: &route.Route_Route{
 					Route: &route.RouteAction{
@@ -104,21 +117,45 @@ func makeRoute(routeName string, clusterName string) *route.RouteConfiguration {
 	}
 }
 
-func makeHTTPListener(listenerName string, routeName string) *listener.Listener {
-	hcm := &http_conn.HttpConnectionManager{
-		CodecType:  http_conn.HttpConnectionManager_AUTO,
-		StatPrefix: "ingress_http",
-		RouteSpecifier: &http_conn.HttpConnectionManager_Rds{
-			Rds: &http_conn.Rds{
+func makeHTTPListener(listenerName, route string) *listener.Listener {
+	routerConfig, _ := anypb.New(&router.Router{})
+	// HTTP filter configuration
+	manager := &hcm.HttpConnectionManager{
+		CodecType:  hcm.HttpConnectionManager_AUTO,
+		StatPrefix: "http",
+		RouteSpecifier: &hcm.HttpConnectionManager_Rds{
+			Rds: &hcm.Rds{
 				ConfigSource:    makeConfigSource(),
-				RouteConfigName: routeName,
+				RouteConfigName: route,
 			},
 		},
-		HttpFilters: []*http_conn.HttpFilter{{
-			Name: wellknown.Router,
+		HttpFilters: []*hcm.HttpFilter{{
+			Name:       "http-router",
+			ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: routerConfig},
 		}},
+		AccessLog: []*accesslog.AccessLog{
+			{
+				Name: "envoy.access_loggers.file",
+				ConfigType: &accesslog.AccessLog_TypedConfig{
+					TypedConfig: MustAny(&file_accesslog.FileAccessLog{
+						Path: "/dev/stdout",
+						AccessLogFormat: &file_accesslog.FileAccessLog_LogFormat{
+							LogFormat: &core.SubstitutionFormatString{
+								Format: &core.SubstitutionFormatString_TextFormatSource{
+									TextFormatSource: &core.DataSource{
+										Specifier: &core.DataSource_InlineString{
+											InlineString: "[%START_TIME%] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %GRPC_STATUS%(%GRPC_STATUS_NUMBER%) %BYTES_SENT% %DURATION% CTD %CONNECTION_TERMINATION_DETAILS% URAC %UPSTREAM_REQUEST_ATTEMPT_COUNT% DWBS %DOWNSTREAM_WIRE_BYTES_SENT% USWBR %UPSTREAM_WIRE_BYTES_RECEIVED% UTFR %UPSTREAM_TRANSPORT_FAILURE_REASON% UH %UPSTREAM_HOST% UC %UPSTREAM_CLUSTER% GRPC_MSG %RESP(grpc-message)%\n",
+										},
+									},
+								},
+							},
+						},
+					}),
+				},
+			},
+		},
 	}
-	pbst, err := anypb.New(hcm)
+	pbst, err := anypb.New(manager)
 	if err != nil {
 		panic(err)
 	}
@@ -128,15 +165,22 @@ func makeHTTPListener(listenerName string, routeName string) *listener.Listener 
 		Address: &core.Address{
 			Address: &core.Address_SocketAddress{
 				SocketAddress: &core.SocketAddress{
-					Protocol:      core.SocketAddress_TCP,
-					Address:       "127.0.0.1", // Listen on loopback
-					PortSpecifier: &core.SocketAddress_PortValue{PortValue: listenerPort},
+					Protocol: core.SocketAddress_TCP,
+					Address:  "0.0.0.0",
+					PortSpecifier: &core.SocketAddress_PortValue{
+						PortValue: listenerPort,
+					},
 				},
 			},
 		},
-		ApiListener: &listener.ApiListener{
-			ApiListener: pbst, // Config for the HTTP connection manager
-		},
+		FilterChains: []*listener.FilterChain{{
+			Filters: []*listener.Filter{{
+				Name: "http-connection-manager",
+				ConfigType: &listener.Filter_TypedConfig{
+					TypedConfig: pbst,
+				},
+			}},
+		}},
 	}
 }
 
@@ -156,6 +200,12 @@ func MustAny(p proto.Message) *anypb.Any {
 		log.Fatalf("Failed to convert proto message to Any: %v", err)
 	}
 	return anypb
+}
+
+// --- gRPC Interceptor for Logging ---
+func loggingInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	log.Printf("gRPC request received: %s", info.FullMethod)
+	return handler(ctx, req)
 }
 
 // --- Main Function ---
@@ -201,8 +251,8 @@ func main() {
 		Caches: map[string]xdscache.Cache{
 			ListenerType: listenerCache, // Map LDS type to listener cache
 			ClusterType:  clusterCache,  // Map CDS type to cluster cache
-			RouteType:    routeCache,      // Map RDS type to route cache
-			EndpointType: endpointCache,   // Map EDS type to endpoint cache
+			RouteType:    routeCache,    // Map RDS type to route cache
+			EndpointType: endpointCache, // Map EDS type to endpoint cache
 		},
 	}
 
@@ -214,7 +264,10 @@ func main() {
 
 	// --- Start gRPC Server ---
 	var grpcServer *grpc.Server
-	grpcServer = grpc.NewServer()
+	// Add the logging interceptor
+	grpcServer = grpc.NewServer(
+		grpc.UnaryInterceptor(loggingInterceptor),
+	)
 	// Listen on loopback only
 	lis, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", gRPCport))
 	if err != nil {
