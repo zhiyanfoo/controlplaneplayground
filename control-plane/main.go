@@ -18,6 +18,7 @@ import (
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	upstreamhttp "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
 	discoveryservice "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	routeservice "github.com/envoyproxy/go-control-plane/envoy/service/route/v3"
 	xdscache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	resourcev3 "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	serverv3 "github.com/envoyproxy/go-control-plane/pkg/server/v3"
@@ -45,6 +46,7 @@ const (
 	RouteType       = resourcev3.RouteType
 	ClusterType     = resourcev3.ClusterType
 	EndpointType    = resourcev3.EndpointType
+	VirtualHostType = resourcev3.VirtualHostType
 	APITypePrefix   = "type.googleapis.com/envoy.config."
 	fabricAuthority = ""
 )
@@ -74,6 +76,23 @@ func makeCluster(clusterName string) *cluster.Cluster {
 	}
 }
 
+func makeVirtualHost(virtualHostName string, domains []string, clusterName string) *route.VirtualHost {
+	return &route.VirtualHost{
+		Name:    virtualHostName,
+		Domains: domains,
+		Routes: []*route.Route{{
+			Match: &route.RouteMatch{
+				PathSpecifier: &route.RouteMatch_Prefix{Prefix: "/"},
+			},
+			Action: &route.Route_Route{
+				Route: &route.RouteAction{
+					ClusterSpecifier: &route.RouteAction_Cluster{Cluster: clusterName},
+				},
+			},
+		}},
+	}
+}
+
 func makeEndpoint(clusterName string, upstreamHost string, upstreamPort uint32) *endpoint.ClusterLoadAssignment {
 	return &endpoint.ClusterLoadAssignment{
 		ClusterName: clusterName,
@@ -97,27 +116,16 @@ func makeEndpoint(clusterName string, upstreamHost string, upstreamPort uint32) 
 	}
 }
 
-func makeRoute(routeName string, clusterName string) *route.RouteConfiguration {
+func makeRoute(routeName string) *route.RouteConfiguration {
 	return &route.RouteConfiguration{
 		Name: routeName,
-		VirtualHosts: []*route.VirtualHost{{
-			Name:    "local_service",
-			Domains: []string{"*"}, // Match any domain
-			Routes: []*route.Route{{
-				Match: &route.RouteMatch{
-					PathSpecifier: &route.RouteMatch_Prefix{Prefix: "/"}, // Match any path
-				},
-				Action: &route.Route_Route{
-					Route: &route.RouteAction{
-						ClusterSpecifier: &route.RouteAction_Cluster{Cluster: clusterName},
-					},
-				},
-			}},
-		}},
+		Vhds: &route.Vhds{
+			ConfigSource: makeVhdsConfigSource(),
+		},
 	}
 }
 
-func makeHTTPListener(listenerName, route string) *listener.Listener {
+func makeHTTPListener(listenerName string, routeConfigName string) *listener.Listener {
 	routerConfig, _ := anypb.New(&router.Router{})
 	// HTTP filter configuration
 	manager := &hcm.HttpConnectionManager{
@@ -126,7 +134,7 @@ func makeHTTPListener(listenerName, route string) *listener.Listener {
 		RouteSpecifier: &hcm.HttpConnectionManager_Rds{
 			Rds: &hcm.Rds{
 				ConfigSource:    makeConfigSource(),
-				RouteConfigName: route,
+				RouteConfigName: routeConfigName,
 			},
 		},
 		HttpFilters: []*hcm.HttpFilter{{
@@ -184,11 +192,31 @@ func makeHTTPListener(listenerName, route string) *listener.Listener {
 	}
 }
 
+// Reverted makeConfigSource to its original simpler form
 func makeConfigSource() *core.ConfigSource {
 	return &core.ConfigSource{
 		ResourceApiVersion: resourcev3.DefaultAPIVersion,
 		ConfigSourceSpecifier: &core.ConfigSource_Ads{
 			Ads: &core.AggregatedConfigSource{},
+		},
+	}
+}
+
+// New function for VHDS ConfigSource using Delta GRPC (non-ADS)
+func makeVhdsConfigSource() *core.ConfigSource {
+	return &core.ConfigSource{
+		ResourceApiVersion: resourcev3.DefaultAPIVersion,
+		ConfigSourceSpecifier: &core.ConfigSource_ApiConfigSource{
+			ApiConfigSource: &core.ApiConfigSource{
+				ApiType:             core.ApiConfigSource_DELTA_GRPC,
+				TransportApiVersion: resourcev3.DefaultAPIVersion,
+				GrpcServices: []*core.GrpcService{{
+					TargetSpecifier: &core.GrpcService_EnvoyGrpc_{
+						EnvoyGrpc: &core.GrpcService_EnvoyGrpc{ClusterName: clusterName}, // Using the defined clusterName constant
+					},
+				}},
+				// SetInitialFetchTimeout: durationpb.New(1 * time.Second), // Optional: can be added if needed
+			},
 		},
 	}
 }
@@ -216,50 +244,64 @@ func main() {
 	clusterCache := xdscache.NewLinearCache(ClusterType)
 	routeCache := xdscache.NewLinearCache(RouteType)
 	endpointCache := xdscache.NewLinearCache(EndpointType)
+	virtualHostCache := xdscache.NewLinearCache(VirtualHostType)
 
 	// --- Create Resources ---
-	l := makeHTTPListener(listenerName, routeName)
-	r := makeRoute(routeName, clusterName)
+	// routeName is the name of the RouteConfiguration object itself
+	// For VHDS, the VirtualHost resource name must be <RouteConfiguration_Name>/<Authority_Header_Value>
+	const expectedAuthority = "localhost:10000" // This is what grpcurl will use to call Envoy
+	virtualHostName := routeName + "/" + expectedAuthority
+
+	l := makeHTTPListener(listenerName, routeName) // Listener refers to RouteConfiguration named routeName ("local_route")
+	rc := makeRoute(routeName)                     // RouteConfiguration delegates to VHDS
+	// The VirtualHost must match what Envoy will request: <RouteConfigName>/<HostHeader>
+	vh := makeVirtualHost(virtualHostName, []string{expectedAuthority, "*"}, clusterName) // VirtualHost resource
 	c := makeCluster(clusterName)
 	e := makeEndpoint(clusterName, upstreamHost, upstreamPort)
 
 	// --- Populate Linear Caches ---
 	if err := listenerCache.UpdateResource(listenerName, l); err != nil {
-		log.Fatalf("failed to update route resource in route cache: %v", err)
+		log.Fatalf("failed to update listener resource in listener cache: %v", err)
 	}
 
-	if err := routeCache.UpdateResource(routeName, r); err != nil {
-		log.Fatalf("failed to update route resource in route cache: %v", err)
+	if err := routeCache.UpdateResource(routeName, rc); err != nil {
+		log.Fatalf("failed to update route configuration resource in route cache: %v", err)
+	}
+
+	if err := virtualHostCache.UpdateResource(virtualHostName, vh); err != nil { // Store VirtualHost for VHDS
+		log.Fatalf("failed to update virtual host resource in VHDS cache: %v", err)
 	}
 
 	if err := clusterCache.UpdateResource(clusterName, c); err != nil {
-		log.Fatalf("failed to update route resource in route cache: %v", err)
+		log.Fatalf("failed to update cluster resource in cluster cache: %v", err)
 	}
 
 	if err := endpointCache.UpdateResource(clusterName, e); err != nil {
 		log.Fatalf("failed to update endpoint resource in endpoint cache: %v", err)
 	}
 
-	log.Printf("Updated Linear caches (RDS: %s, EDS: %s)", routeName, clusterName)
+	log.Printf("Updated Linear caches (LDS: %s, RDS: %s, VHDS: %s, CDS: %s, EDS: %s)", listenerName, routeName, virtualHostName, clusterName, clusterName)
 
-	// --- Create MuxCache ---
+	// --- Create MuxCache for ADS (LDS, RDS, CDS, EDS) ---
 	muxCache := &xdscache.MuxCache{
 		Classify: func(req *xdscache.Request) string {
-			// Use the TypeUrl to classify requests
 			return req.TypeUrl
 		},
 		Caches: map[string]xdscache.Cache{
-			ListenerType: listenerCache, // Map LDS type to listener cache
-			ClusterType:  clusterCache,  // Map CDS type to cluster cache
-			RouteType:    routeCache,    // Map RDS type to route cache
-			EndpointType: endpointCache, // Map EDS type to endpoint cache
+			ListenerType:    listenerCache,
+			RouteType:       routeCache,
+			ClusterType:     clusterCache,
+			EndpointType:    endpointCache,
+			VirtualHostType: virtualHostCache,
+			// VirtualHostType is no longer served by this MuxCache/ADS server
 		},
 	}
 
 	ctx := context.Background()
-	// Use testv3 callbacks for debugging
+	// Use testv3 callbacks for debugging (can be shared or separate)
 	cb := &testv3.Callbacks{Debug: true}
-	// Use the MuxCache for the server
+
+	// Server for ADS (LDS, RDS, CDS, EDS)
 	srv := serverv3.NewServer(ctx, muxCache, cb)
 
 	// --- Start gRPC Server ---
@@ -274,9 +316,12 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// Register ADS server
 	discoveryservice.RegisterAggregatedDiscoveryServiceServer(grpcServer, srv)
+	// Register dedicated VHDS server
+	routeservice.RegisterVirtualHostDiscoveryServiceServer(grpcServer, srv)
 
-	log.Printf("xDS control plane (MuxCache) listening on %d\n", gRPCport)
+	log.Printf("xDS control plane: ADS and VHDS (Delta GRPC) services listening on %d\n", gRPCport)
 	go func() {
 		if err = grpcServer.Serve(lis); err != nil {
 			log.Fatal(err)
