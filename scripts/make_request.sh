@@ -21,8 +21,8 @@ grpcurl -plaintext \
     localhost:10000 test.TestService/SayHello
 
 if [ $? -eq 0 ]; then
-    echo "\ngrpcurl request successful!"
+    echo "grpcurl request successful!"
 else
-    echo "\ngrpcurl request failed."
+    echo "grpcurl request failed."
     exit 1 # Exit with error if grpcurl failed
 fi 

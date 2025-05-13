@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"time"
 
 	accesslog "github.com/envoyproxy/go-control-plane/envoy/config/accesslog/v3"
@@ -22,7 +23,6 @@ import (
 	xdscache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	resourcev3 "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	serverv3 "github.com/envoyproxy/go-control-plane/pkg/server/v3"
-	testv3 "github.com/envoyproxy/go-control-plane/pkg/test/v3"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
@@ -31,15 +31,16 @@ import (
 )
 
 const (
-	gRPCport     = 18000
-	XDSHost      = "localhost"
-	upstreamPort = 50051 // Port of the test gRPC server
-	listenerName = "listener_0"
-	listenerPort = 10000
-	routeName    = "local_route"
-	clusterName  = "test_cluster"
-	upstreamHost = "127.0.0.1"
-	nodeID       = "test-id" // Node ID served by this control plane
+	debugLogFilename = "xds_debug.log"
+	gRPCport         = 18000
+	XDSHost          = "localhost"
+	upstreamPort     = 50051 // Port of the test gRPC server
+	listenerName     = "listener_0"
+	listenerPort     = 10000
+	routeName        = "local_route"
+	clusterName      = "test_cluster"
+	upstreamHost     = "127.0.0.1"
+	nodeID           = "test-id" // Node ID served by this control plane
 
 	// Resource Type URLs
 	ListenerType    = resourcev3.ListenerType
@@ -212,12 +213,13 @@ func makeVhdsConfigSource() *core.ConfigSource {
 				TransportApiVersion: resourcev3.DefaultAPIVersion,
 				GrpcServices: []*core.GrpcService{{
 					TargetSpecifier: &core.GrpcService_EnvoyGrpc_{
-						EnvoyGrpc: &core.GrpcService_EnvoyGrpc{ClusterName: clusterName}, // Using the defined clusterName constant
+						EnvoyGrpc: &core.GrpcService_EnvoyGrpc{ClusterName: "xds_cluster"}, // Using the defined clusterName constant
 					},
 				}},
 				// SetInitialFetchTimeout: durationpb.New(1 * time.Second), // Optional: can be added if needed
 			},
 		},
+		InitialFetchTimeout: durationpb.New(time.Second),
 	}
 }
 
@@ -230,15 +232,119 @@ func MustAny(p proto.Message) *anypb.Any {
 	return anypb
 }
 
-// --- gRPC Interceptor for Logging ---
-func loggingInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-	log.Printf("gRPC request received: %s", info.FullMethod)
-	return handler(ctx, req)
+// --- Custom Callbacks for Logging Requests and Responses ---
+
+// requestResponseLogger implements serverv3.Callbacks for detailed xDS message logging.
+type requestResponseLogger struct {
+	debugFileLogger *log.Logger // Logger for writing detailed output to a file
+}
+
+// OnStreamOpen is called once an xDS stream is open.
+func (l *requestResponseLogger) OnStreamOpen(ctx context.Context, id int64, typ string) error {
+	log.Printf("CONSOLE: OnStreamOpen ID[%d] Type[%s]", id, typ)
+	// No detailed protobuf to write to file for this event
+	return nil
+}
+
+// OnStreamClosed is called immediately prior to closing an xDS stream.
+func (l *requestResponseLogger) OnStreamClosed(id int64, node *core.Node) {
+	var nodeID string
+	if node != nil {
+		nodeID = node.GetId()
+	}
+	log.Printf("CONSOLE: OnStreamClosed ID[%d] NodeID[%s]", id, nodeID)
+	// No detailed protobuf to write to file for this event
+}
+
+// OnStreamRequest logs incoming SotW DiscoveryRequests.
+func (l *requestResponseLogger) OnStreamRequest(streamID int64, req *discoveryservice.DiscoveryRequest) error {
+	log.Printf("CONSOLE: OnStreamRequest ID[%d] Type[%s] Node[%s] Version[%s] Nonce[%s] Resources[%d]",
+		streamID, req.GetTypeUrl(), req.GetNode().GetId(), req.GetVersionInfo(), req.GetResponseNonce(), len(req.GetResourceNames()))
+	if l.debugFileLogger != nil {
+		l.debugFileLogger.Printf("FILE DEBUG: OnStreamRequest ID[%d]:\n%s\n---END REQUEST---", streamID, req.String())
+	}
+	return nil
+}
+
+// OnStreamResponse logs outgoing SotW DiscoveryResponses.
+func (l *requestResponseLogger) OnStreamResponse(ctx context.Context, streamID int64, req *discoveryservice.DiscoveryRequest, resp *discoveryservice.DiscoveryResponse) {
+	log.Printf("CONSOLE: OnStreamResponse ID[%d] Type[%s] Version[%s] Nonce[%s] Resources[%d] for Request Node[%s]",
+		streamID, resp.GetTypeUrl(), resp.GetVersionInfo(), resp.GetNonce(), len(resp.GetResources()), req.GetNode().GetId())
+	if l.debugFileLogger != nil {
+		l.debugFileLogger.Printf("FILE DEBUG: OnStreamResponse ID[%d] for Request Node[%s] Type[%s]:\n%s\n---END RESPONSE---", streamID, req.GetNode().GetId(), req.GetTypeUrl(), resp.String())
+	}
+}
+
+// OnDeltaStreamOpen is called once an xDS Delta stream is open.
+func (l *requestResponseLogger) OnDeltaStreamOpen(ctx context.Context, id int64, typ string) error {
+	log.Printf("CONSOLE: OnDeltaStreamOpen ID[%d] Type[%s]", id, typ)
+	// No detailed protobuf to write to file for this event
+	return nil
+}
+
+// OnDeltaStreamClosed is called immediately prior to closing an xDS Delta stream.
+func (l *requestResponseLogger) OnDeltaStreamClosed(id int64, node *core.Node) {
+	var nodeID string
+	if node != nil {
+		nodeID = node.GetId()
+	}
+	log.Printf("CONSOLE: OnDeltaStreamClosed ID[%d] NodeID[%s]", id, nodeID)
+	// No detailed protobuf to write to file for this event
+}
+
+// OnStreamDeltaRequest logs incoming DeltaDiscoveryRequests.
+// Signature matches older go-control-plane interface expected by the linter.
+func (l *requestResponseLogger) OnStreamDeltaRequest(streamID int64, req *discoveryservice.DeltaDiscoveryRequest) error {
+	log.Printf("CONSOLE: OnStreamDeltaRequest ID[%d] Type[%s] Node[%s] RespNonce[%s] Sub[%d] Unsub[%d]",
+		streamID, req.GetTypeUrl(), req.GetNode().GetId(), req.GetResponseNonce(), len(req.GetResourceNamesSubscribe()), len(req.GetResourceNamesUnsubscribe()))
+	if l.debugFileLogger != nil {
+		l.debugFileLogger.Printf("FILE DEBUG: OnStreamDeltaRequest ID[%d] TypeURL[%s]:\n%s\n---END REQUEST---", streamID, req.GetTypeUrl(), req.String())
+	}
+	return nil
+}
+
+// OnStreamDeltaResponse logs outgoing DeltaDiscoveryResponses.
+// Name matches older go-control-plane interface.
+func (l *requestResponseLogger) OnStreamDeltaResponse(streamID int64, req *discoveryservice.DeltaDiscoveryRequest, resp *discoveryservice.DeltaDiscoveryResponse) {
+	log.Printf("CONSOLE: OnStreamDeltaResponse ID[%d] Type[%s] SysVer[%s] Nonce[%s] ResourcesSent[%d] ResourcesRemoved[%d] for ReqNode[%s]",
+		streamID, resp.GetTypeUrl(), resp.GetSystemVersionInfo(), resp.GetNonce(), len(resp.GetResources()), len(resp.GetRemovedResources()), req.GetNode().GetId())
+	if l.debugFileLogger != nil {
+		l.debugFileLogger.Printf("FILE DEBUG: OnStreamDeltaResponse ID[%d] for Request Node[%s] TypeURL[%s]:\n%s\n---END RESPONSE---", streamID, req.GetNode().GetId(), req.GetTypeUrl(), resp.String())
+	}
+}
+
+// OnFetchRequest logs incoming Fetch DiscoveryRequests.
+func (l *requestResponseLogger) OnFetchRequest(ctx context.Context, req *discoveryservice.DiscoveryRequest) error {
+	log.Printf("CONSOLE: OnFetchRequest Node[%s] Type[%s] Version[%s] Nonce[%s] Resources[%d]",
+		req.GetNode().GetId(), req.GetTypeUrl(), req.GetVersionInfo(), req.GetResponseNonce(), len(req.GetResourceNames()))
+	if l.debugFileLogger != nil {
+		l.debugFileLogger.Printf("FILE DEBUG: OnFetchRequest Node[%s] TypeURL[%s]:\n%s\n---END REQUEST---", req.GetNode().GetId(), req.GetTypeUrl(), req.String())
+	}
+	return nil
+}
+
+// OnFetchResponse logs outgoing Fetch DiscoveryResponses.
+func (l *requestResponseLogger) OnFetchResponse(req *discoveryservice.DiscoveryRequest, resp *discoveryservice.DiscoveryResponse) {
+	log.Printf("CONSOLE: OnFetchResponse Type[%s] Version[%s] Nonce[%s] Resources[%d] for Request Node[%s]",
+		resp.GetTypeUrl(), resp.GetVersionInfo(), resp.GetNonce(), len(resp.GetResources()), req.GetNode().GetId())
+	if l.debugFileLogger != nil {
+		l.debugFileLogger.Printf("FILE DEBUG: OnFetchResponse for Request Node[%s] TypeURL[%s]:\n%s\n---END RESPONSE---", req.GetNode().GetId(), req.GetTypeUrl(), resp.String())
+	}
 }
 
 // --- Main Function ---
 
 func main() {
+	// Setup file logger for detailed debug messages
+	debugFile, err := os.OpenFile(debugLogFilename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatalf("Failed to open debug log file %s: %v", debugLogFilename, err)
+	}
+	defer debugFile.Close()
+	debugFileLogger := log.New(debugFile, "", log.LstdFlags) // Using standard log flags, no prefix from logger itself
+
+	log.Printf("Control plane starting. Detailed xDS debug logs will be written to %s", debugLogFilename)
+
 	// --- Initialize Caches ---
 	listenerCache := xdscache.NewLinearCache(ListenerType)
 	clusterCache := xdscache.NewLinearCache(ClusterType)
@@ -287,6 +393,9 @@ func main() {
 		Classify: func(req *xdscache.Request) string {
 			return req.TypeUrl
 		},
+		ClassifyDelta: func(req *xdscache.DeltaRequest) string {
+			return req.TypeUrl
+		},
 		Caches: map[string]xdscache.Cache{
 			ListenerType:    listenerCache,
 			RouteType:       routeCache,
@@ -298,18 +407,16 @@ func main() {
 	}
 
 	ctx := context.Background()
-	// Use testv3 callbacks for debugging (can be shared or separate)
-	cb := &testv3.Callbacks{Debug: true}
+	// Use custom logger implementing serverv3.Callbacks
+	cb := &requestResponseLogger{debugFileLogger: debugFileLogger}
 
-	// Server for ADS (LDS, RDS, CDS, EDS)
+	// Server for ADS and VHDS
 	srv := serverv3.NewServer(ctx, muxCache, cb)
 
 	// --- Start gRPC Server ---
 	var grpcServer *grpc.Server
-	// Add the logging interceptor
-	grpcServer = grpc.NewServer(
-		grpc.UnaryInterceptor(loggingInterceptor),
-	)
+	// Remove or keep gRPC interceptor based on needs. For now, removing it as we have xDS layer logging.
+	grpcServer = grpc.NewServer()
 	// Listen on loopback only
 	lis, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", gRPCport))
 	if err != nil {
