@@ -1,2 +1,3 @@
 control-plane/cp
 test-server/server
+control-plane/xds_debug.log
