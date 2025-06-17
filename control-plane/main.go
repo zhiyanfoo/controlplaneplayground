@@ -263,6 +263,7 @@ func (l *requestResponseLogger) OnStreamRequest(streamID int64, req *discoveryse
 	if l.debugFileLogger != nil {
 		l.debugFileLogger.Printf("FILE DEBUG: OnStreamRequest ID[%d]:\n%s\n---END REQUEST---", streamID, req.String())
 	}
+
 	return nil
 }
 
@@ -332,6 +333,72 @@ func (l *requestResponseLogger) OnFetchResponse(req *discoveryservice.DiscoveryR
 	}
 }
 
+// xdsCallbackManager implements serverv3.Callbacks and manages xDS callbacks with access to caches
+type xdsCallbackManager struct {
+	*requestResponseLogger
+	virtualHostCache xdscache.Cache
+	clusterCache     xdscache.Cache
+}
+
+// NewXdsCallbackManager creates a new xdsCallbackManager instance
+func NewXdsCallbackManager(logger *requestResponseLogger, vhCache, clCache xdscache.Cache) *xdsCallbackManager {
+	return &xdsCallbackManager{
+		requestResponseLogger: logger,
+		virtualHostCache:      vhCache,
+		clusterCache:          clCache,
+	}
+}
+
+// OnStreamOpen is called once an xDS stream is open.
+func (m *xdsCallbackManager) OnStreamOpen(ctx context.Context, id int64, typ string) error {
+	return m.requestResponseLogger.OnStreamOpen(ctx, id, typ)
+}
+
+// OnStreamClosed is called immediately prior to closing an xDS stream.
+func (m *xdsCallbackManager) OnStreamClosed(id int64, node *core.Node) {
+	m.requestResponseLogger.OnStreamClosed(id, node)
+}
+
+// OnStreamRequest logs incoming SotW DiscoveryRequests.
+func (m *xdsCallbackManager) OnStreamRequest(streamID int64, req *discoveryservice.DiscoveryRequest) error {
+	return m.requestResponseLogger.OnStreamRequest(streamID, req)
+}
+
+// OnStreamResponse logs outgoing SotW DiscoveryResponses.
+func (m *xdsCallbackManager) OnStreamResponse(ctx context.Context, streamID int64, req *discoveryservice.DiscoveryRequest, resp *discoveryservice.DiscoveryResponse) {
+	m.requestResponseLogger.OnStreamResponse(ctx, streamID, req, resp)
+}
+
+// OnDeltaStreamOpen is called once an xDS Delta stream is open.
+func (m *xdsCallbackManager) OnDeltaStreamOpen(ctx context.Context, id int64, typ string) error {
+	return m.requestResponseLogger.OnDeltaStreamOpen(ctx, id, typ)
+}
+
+// OnDeltaStreamClosed is called immediately prior to closing an xDS Delta stream.
+func (m *xdsCallbackManager) OnDeltaStreamClosed(id int64, node *core.Node) {
+	m.requestResponseLogger.OnDeltaStreamClosed(id, node)
+}
+
+// OnStreamDeltaRequest logs incoming DeltaDiscoveryRequests.
+func (m *xdsCallbackManager) OnStreamDeltaRequest(streamID int64, req *discoveryservice.DeltaDiscoveryRequest) error {
+	return m.requestResponseLogger.OnStreamDeltaRequest(streamID, req)
+}
+
+// OnStreamDeltaResponse logs outgoing DeltaDiscoveryResponses.
+func (m *xdsCallbackManager) OnStreamDeltaResponse(streamID int64, req *discoveryservice.DeltaDiscoveryRequest, resp *discoveryservice.DeltaDiscoveryResponse) {
+	m.requestResponseLogger.OnStreamDeltaResponse(streamID, req, resp)
+}
+
+// OnFetchRequest logs incoming Fetch DiscoveryRequests.
+func (m *xdsCallbackManager) OnFetchRequest(ctx context.Context, req *discoveryservice.DiscoveryRequest) error {
+	return m.requestResponseLogger.OnFetchRequest(ctx, req)
+}
+
+// OnFetchResponse logs outgoing Fetch DiscoveryResponses.
+func (m *xdsCallbackManager) OnFetchResponse(req *discoveryservice.DiscoveryRequest, resp *discoveryservice.DiscoveryResponse) {
+	m.requestResponseLogger.OnFetchResponse(req, resp)
+}
+
 // --- Main Function ---
 
 func main() {
@@ -346,11 +413,11 @@ func main() {
 	log.Printf("Control plane starting. Detailed xDS debug logs will be written to %s", debugLogFilename)
 
 	// --- Initialize Caches ---
-	listenerCache := xdscache.NewLinearCache(ListenerType)
-	clusterCache := xdscache.NewLinearCache(ClusterType)
-	routeCache := xdscache.NewLinearCache(RouteType)
-	endpointCache := xdscache.NewLinearCache(EndpointType)
-	virtualHostCache := xdscache.NewLinearCache(VirtualHostType)
+	listenerCache := xdscache.NewLinearCache(ListenerType, xdscache.WithCustomWildCardMode(true))
+	clusterCache := xdscache.NewLinearCache(ClusterType, xdscache.WithCustomWildCardMode(true))
+	routeCache := xdscache.NewLinearCache(RouteType, xdscache.WithCustomWildCardMode(true))
+	endpointCache := xdscache.NewLinearCache(EndpointType, xdscache.WithCustomWildCardMode(true))
+	virtualHostCache := xdscache.NewLinearCache(VirtualHostType, xdscache.WithCustomWildCardMode(true))
 
 	// --- Create Resources ---
 	// routeName is the name of the RouteConfiguration object itself
@@ -443,7 +510,8 @@ func main() {
 
 	ctx := context.Background()
 	// Use custom logger implementing serverv3.Callbacks
-	cb := &requestResponseLogger{debugFileLogger: debugFileLogger}
+	logger := &requestResponseLogger{debugFileLogger: debugFileLogger}
+	cb := NewXdsCallbackManager(logger, virtualHostCache, clusterCache)
 
 	// Server for ADS and VHDS
 	srv := serverv3.NewServer(ctx, muxCache, cb)
