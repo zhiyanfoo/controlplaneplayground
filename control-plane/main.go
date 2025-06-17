@@ -362,8 +362,20 @@ func main() {
 	rc := makeRoute(routeName)                     // RouteConfiguration delegates to VHDS
 	// The VirtualHost must match what Envoy will request: <RouteConfigName>/<HostHeader>
 	vh := makeVirtualHost(virtualHostName, []string{expectedAuthority, "*"}, clusterName) // VirtualHost resource
+
+	// Create original cluster
 	c := makeCluster(clusterName)
 	e := makeEndpoint(clusterName, upstreamHost, upstreamPort)
+
+	// Create three additional clusters
+	c1 := makeCluster("test_cluster_1")
+	c2 := makeCluster("test_cluster_2")
+	c3 := makeCluster("test_cluster_3")
+
+	// Create corresponding endpoints for each additional cluster
+	e1 := makeEndpoint("test_cluster_1", upstreamHost, upstreamPort)
+	e2 := makeEndpoint("test_cluster_2", upstreamHost, upstreamPort)
+	e3 := makeEndpoint("test_cluster_3", upstreamHost, upstreamPort)
 
 	// --- Populate Linear Caches ---
 	if err := listenerCache.UpdateResource(listenerName, l); err != nil {
@@ -378,15 +390,39 @@ func main() {
 		log.Fatalf("failed to update virtual host resource in VHDS cache: %v", err)
 	}
 
+	// Update cluster cache with original cluster
 	if err := clusterCache.UpdateResource(clusterName, c); err != nil {
 		log.Fatalf("failed to update cluster resource in cluster cache: %v", err)
 	}
 
+	// Update cluster cache with additional clusters
+	if err := clusterCache.UpdateResource("test_cluster_1", c1); err != nil {
+		log.Fatalf("failed to update cluster resource test_cluster_1 in cluster cache: %v", err)
+	}
+	if err := clusterCache.UpdateResource("test_cluster_2", c2); err != nil {
+		log.Fatalf("failed to update cluster resource test_cluster_2 in cluster cache: %v", err)
+	}
+	if err := clusterCache.UpdateResource("test_cluster_3", c3); err != nil {
+		log.Fatalf("failed to update cluster resource test_cluster_3 in cluster cache: %v", err)
+	}
+
+	// Update endpoint cache with original endpoint
 	if err := endpointCache.UpdateResource(clusterName, e); err != nil {
 		log.Fatalf("failed to update endpoint resource in endpoint cache: %v", err)
 	}
 
-	log.Printf("Updated Linear caches (LDS: %s, RDS: %s, VHDS: %s, CDS: %s, EDS: %s)", listenerName, routeName, virtualHostName, clusterName, clusterName)
+	// Update endpoint cache with additional endpoints
+	if err := endpointCache.UpdateResource("test_cluster_1", e1); err != nil {
+		log.Fatalf("failed to update endpoint resource test_cluster_1 in endpoint cache: %v", err)
+	}
+	if err := endpointCache.UpdateResource("test_cluster_2", e2); err != nil {
+		log.Fatalf("failed to update endpoint resource test_cluster_2 in endpoint cache: %v", err)
+	}
+	if err := endpointCache.UpdateResource("test_cluster_3", e3); err != nil {
+		log.Fatalf("failed to update endpoint resource test_cluster_3 in endpoint cache: %v", err)
+	}
+
+	log.Printf("Updated Linear caches (LDS: %s, RDS: %s, VHDS: %s, CDS: %s,test_cluster_1,2,3, EDS: %s,test_cluster_1,2,3)", listenerName, routeName, virtualHostName, clusterName, clusterName)
 
 	// --- Create MuxCache for ADS (LDS, RDS, CDS, EDS) ---
 	muxCache := &xdscache.MuxCache{
@@ -402,7 +438,6 @@ func main() {
 			ClusterType:     clusterCache,
 			EndpointType:    endpointCache,
 			VirtualHostType: virtualHostCache,
-			// VirtualHostType is no longer served by this MuxCache/ADS server
 		},
 	}
 

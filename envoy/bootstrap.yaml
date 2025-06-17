@@ -20,6 +20,11 @@ dynamic_resources:
 node:
   id: test-id
   cluster: test_cluster
+  metadata:
+    initial_clusters:
+      clusters:
+        - test_cluster_1
+        - test_cluster_2
 
 admin:
   address:
