@@ -301,6 +301,7 @@ func (l *requestResponseLogger) OnStreamDeltaRequest(streamID int64, req *discov
 	if l.debugFileLogger != nil {
 		l.debugFileLogger.Printf("FILE DEBUG: OnStreamDeltaRequest ID[%d] TypeURL[%s]:\n%s\n---END REQUEST---", streamID, req.GetTypeUrl(), req.String())
 	}
+
 	return nil
 }
 
@@ -336,12 +337,17 @@ func (l *requestResponseLogger) OnFetchResponse(req *discoveryservice.DiscoveryR
 // xdsCallbackManager implements serverv3.Callbacks and manages xDS callbacks with access to caches
 type xdsCallbackManager struct {
 	*requestResponseLogger
-	virtualHostCache xdscache.Cache
-	clusterCache     xdscache.Cache
+	virtualHostCache *xdscache.LinearCache
+	clusterCache     *xdscache.LinearCache
+}
+
+// ClusterList holds the list of clusters for a node
+type ClusterList struct {
+	Clusters []string
 }
 
 // NewXdsCallbackManager creates a new xdsCallbackManager instance
-func NewXdsCallbackManager(logger *requestResponseLogger, vhCache, clCache xdscache.Cache) *xdsCallbackManager {
+func NewXdsCallbackManager(logger *requestResponseLogger, vhCache, clCache *xdscache.LinearCache) *xdsCallbackManager {
 	return &xdsCallbackManager{
 		requestResponseLogger: logger,
 		virtualHostCache:      vhCache,
@@ -379,9 +385,37 @@ func (m *xdsCallbackManager) OnDeltaStreamClosed(id int64, node *core.Node) {
 	m.requestResponseLogger.OnDeltaStreamClosed(id, node)
 }
 
-// OnStreamDeltaRequest logs incoming DeltaDiscoveryRequests.
+// OnStreamDeltaRequest logs incoming DeltaDiscoveryRequests and processes node metadata
 func (m *xdsCallbackManager) OnStreamDeltaRequest(streamID int64, req *discoveryservice.DeltaDiscoveryRequest) error {
-	return m.requestResponseLogger.OnStreamDeltaRequest(streamID, req)
+	// First call the logger's method
+	if err := m.requestResponseLogger.OnStreamDeltaRequest(streamID, req); err != nil {
+		return err
+	}
+
+	// Process node metadata if present
+	if req.GetNode() != nil {
+		nodeID := req.GetNode().GetId()
+		if metadata := req.GetNode().GetMetadata(); metadata != nil {
+			if initialClusters := metadata.GetFields()["initial_clusters"]; initialClusters != nil {
+				if clusters := initialClusters.GetStructValue().GetFields()["clusters"]; clusters != nil {
+					clusterList := clusters.GetListValue().GetValues()
+					clusters := make(map[string]struct{}, len(clusterList))
+
+					for _, cluster := range clusterList {
+						clusters[cluster.GetStringValue()] = struct{}{}
+					}
+
+					if err := m.clusterCache.UpdateWilcardResourcesForNode(nodeID, clusters); err != nil {
+						log.Printf("Error updating cluster %s for node %s: %v", clusterName, nodeID, err)
+					}
+
+					log.Printf("Node %s requested clusters: %v", nodeID, clusters)
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // OnStreamDeltaResponse logs outgoing DeltaDiscoveryResponses.
@@ -413,11 +447,17 @@ func main() {
 	log.Printf("Control plane starting. Detailed xDS debug logs will be written to %s", debugLogFilename)
 
 	// --- Initialize Caches ---
-	listenerCache := xdscache.NewLinearCache(ListenerType, xdscache.WithCustomWildCardMode(true))
+	listenerCache := xdscache.NewLinearCache(ListenerType, xdscache.WithCustomWildCardMode(false))
 	clusterCache := xdscache.NewLinearCache(ClusterType, xdscache.WithCustomWildCardMode(true))
-	routeCache := xdscache.NewLinearCache(RouteType, xdscache.WithCustomWildCardMode(true))
-	endpointCache := xdscache.NewLinearCache(EndpointType, xdscache.WithCustomWildCardMode(true))
-	virtualHostCache := xdscache.NewLinearCache(VirtualHostType, xdscache.WithCustomWildCardMode(true))
+	routeCache := xdscache.NewLinearCache(RouteType, xdscache.WithCustomWildCardMode(false))
+	endpointCache := xdscache.NewLinearCache(EndpointType, xdscache.WithCustomWildCardMode(false))
+	virtualHostCache := xdscache.NewLinearCache(VirtualHostType, xdscache.WithCustomWildCardMode(false))
+
+	// listenerCache := xdscache.NewLinearCache(ListenerType)
+	// clusterCache := xdscache.NewLinearCache(ClusterType)
+	// routeCache := xdscache.NewLinearCache(RouteType)
+	// endpointCache := xdscache.NewLinearCache(EndpointType)
+	// virtualHostCache := xdscache.NewLinearCache(VirtualHostType)
 
 	// --- Create Resources ---
 	// routeName is the name of the RouteConfiguration object itself
