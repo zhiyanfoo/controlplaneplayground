@@ -13,4 +13,4 @@ then
 fi
 
 echo "Starting Envoy with config $WORKSPACE_ROOT/envoy/bootstrap.yaml... (Press Ctrl+C to stop)"
-envoy -c "$WORKSPACE_ROOT/envoy/bootstrap.yaml"
+envoy -c "$WORKSPACE_ROOT/envoy/bootstrap.yaml" --log-level debug

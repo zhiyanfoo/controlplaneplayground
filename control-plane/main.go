@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"sync"
 	"time"
 
 	accesslog "github.com/envoyproxy/go-control-plane/envoy/config/accesslog/v3"
@@ -339,6 +340,8 @@ type xdsCallbackManager struct {
 	*requestResponseLogger
 	virtualHostCache *xdscache.LinearCache
 	clusterCache     *xdscache.LinearCache
+	nodeClusterCache map[string]map[string]struct{} // Maps nodeID to set of clusters
+	mu               sync.RWMutex                   // Protects nodeClusterCache
 }
 
 // ClusterList holds the list of clusters for a node
@@ -352,6 +355,7 @@ func NewXdsCallbackManager(logger *requestResponseLogger, vhCache, clCache *xdsc
 		requestResponseLogger: logger,
 		virtualHostCache:      vhCache,
 		clusterCache:          clCache,
+		nodeClusterCache:      make(map[string]map[string]struct{}),
 	}
 }
 
@@ -399,23 +403,50 @@ func (m *xdsCallbackManager) OnStreamDeltaRequest(streamID int64, req *discovery
 			if initialClusters := metadata.GetFields()["initial_clusters"]; initialClusters != nil {
 				if clusters := initialClusters.GetStructValue().GetFields()["clusters"]; clusters != nil {
 					clusterList := clusters.GetListValue().GetValues()
-					clusters := make(map[string]struct{}, len(clusterList))
+					newClusters := make(map[string]struct{}, len(clusterList))
 
 					for _, cluster := range clusterList {
-						clusters[cluster.GetStringValue()] = struct{}{}
+						newClusters[cluster.GetStringValue()] = struct{}{}
 					}
 
-					if err := m.clusterCache.UpdateWilcardResourcesForNode(nodeID, clusters); err != nil {
-						log.Printf("Error updating cluster %s for node %s: %v", clusterName, nodeID, err)
-					}
+					// Check if the cluster set has changed
+					m.mu.RLock()
+					existingClusters, exists := m.nodeClusterCache[nodeID]
+					m.mu.RUnlock()
 
-					log.Printf("Node %s requested clusters: %v", nodeID, clusters)
+					if !exists || !mapsEqual(existingClusters, newClusters) {
+						// Update the LinearCache only if the set has changed
+						// This won't trigger unnecessary rebuilds because the node that made the request
+						// has not set 
+						if err := m.clusterCache.UpdateWilcardResourcesForNode(nodeID, newClusters); err != nil {
+							log.Printf("Error updating clusters for node %s: %v", nodeID, err)
+						} else {
+							// Update our cache with the new set
+							m.mu.Lock()
+							m.nodeClusterCache[nodeID] = newClusters
+							m.mu.Unlock()
+							log.Printf("Updated cluster set for node %s: %v", nodeID, newClusters)
+						}
+					}
 				}
 			}
 		}
 	}
 
 	return nil
+}
+
+// mapsEqual compares two maps for equality
+func mapsEqual(a, b map[string]struct{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if _, ok := b[k]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // OnStreamDeltaResponse logs outgoing DeltaDiscoveryResponses.
