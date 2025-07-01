@@ -482,7 +482,7 @@ func main() {
 	clusterCache := xdscache.NewLinearCache(ClusterType, xdscache.WithCustomWildCardMode(true))
 	routeCache := xdscache.NewLinearCache(RouteType, xdscache.WithCustomWildCardMode(false))
 	endpointCache := xdscache.NewLinearCache(EndpointType, xdscache.WithCustomWildCardMode(false))
-	virtualHostCache := xdscache.NewLinearCache(VirtualHostType, xdscache.WithCustomWildCardMode(false))
+	virtualHostCache := xdscache.NewLinearCache(VirtualHostType, xdscache.WithCustomWildCardMode(true))
 
 	// listenerCache := xdscache.NewLinearCache(ListenerType)
 	// clusterCache := xdscache.NewLinearCache(ClusterType)

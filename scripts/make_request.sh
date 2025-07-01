@@ -18,6 +18,7 @@ grpcurl -plaintext \
     -import-path "$WORKSPACE_ROOT/test-server" \
     -proto "$WORKSPACE_ROOT/test-server/test.proto" \
     -d '{"name": "Playground User"}' \
+    -authority "localhost:10000" \
     localhost:10000 test.TestService/SayHello
 
 if [ $? -eq 0 ]; then
