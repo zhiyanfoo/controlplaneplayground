@@ -16,6 +16,7 @@ import (
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	file_accesslog "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/file/v3"
+	ondemand "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/on_demand/v3"
 	router "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	upstreamhttp "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
@@ -129,6 +130,8 @@ func makeRoute(routeName string) *route.RouteConfiguration {
 
 func makeHTTPListener(listenerName string, routeConfigName string) *listener.Listener {
 	routerConfig, _ := anypb.New(&router.Router{})
+	odcdsConfig, _ := anypb.New(makeOdcdsConfig())
+
 	// HTTP filter configuration
 	manager := &hcm.HttpConnectionManager{
 		CodecType:  hcm.HttpConnectionManager_AUTO,
@@ -139,10 +142,16 @@ func makeHTTPListener(listenerName string, routeConfigName string) *listener.Lis
 				RouteConfigName: routeConfigName,
 			},
 		},
-		HttpFilters: []*hcm.HttpFilter{{
-			Name:       "http-router",
-			ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: routerConfig},
-		}},
+		HttpFilters: []*hcm.HttpFilter{
+			{
+				Name:       "envoy.filters.http.on_demand",
+				ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: odcdsConfig},
+			},
+			{
+				Name:       "http-router",
+				ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: routerConfig},
+			},
+		},
 		AccessLog: []*accesslog.AccessLog{
 			{
 				Name: "envoy.access_loggers.file",
@@ -221,6 +230,30 @@ func makeVhdsConfigSource() *core.ConfigSource {
 			},
 		},
 		InitialFetchTimeout: durationpb.New(time.Second),
+	}
+}
+
+// makeOdcdsConfig creates the On Demand Discovery configuration
+func makeOdcdsConfig() *ondemand.OnDemand {
+	return &ondemand.OnDemand{
+		Odcds: &ondemand.OnDemandCds{
+			Source: &core.ConfigSource{
+				ResourceApiVersion: resourcev3.DefaultAPIVersion,
+				ConfigSourceSpecifier: &core.ConfigSource_ApiConfigSource{
+					ApiConfigSource: &core.ApiConfigSource{
+						ApiType:             core.ApiConfigSource_DELTA_GRPC,
+						TransportApiVersion: resourcev3.DefaultAPIVersion,
+						GrpcServices: []*core.GrpcService{{
+							TargetSpecifier: &core.GrpcService_EnvoyGrpc_{
+								EnvoyGrpc: &core.GrpcService_EnvoyGrpc{ClusterName: "xds_cluster"},
+							},
+						}},
+					},
+				},
+			},
+			ResourcesLocator: "xdstp:///envoy.config.cluster.v3.Cluster/*",
+			Timeout:          durationpb.New(5 * time.Second),
+		},
 	}
 }
 
@@ -417,7 +450,7 @@ func (m *xdsCallbackManager) OnStreamDeltaRequest(streamID int64, req *discovery
 					if !exists || !mapsEqual(existingClusters, newClusters) {
 						// Update the LinearCache only if the set has changed
 						// This won't trigger unnecessary rebuilds because the node that made the request
-						// has not set 
+						// has not set
 						if err := m.clusterCache.UpdateWilcardResourcesForNode(nodeID, newClusters); err != nil {
 							log.Printf("Error updating clusters for node %s: %v", nodeID, err)
 						} else {
