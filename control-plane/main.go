@@ -44,6 +44,13 @@ const (
 	upstreamHost     = "127.0.0.1"
 	nodeID           = "test-id" // Node ID served by this control plane
 
+	// HTTP/1.1 specific constants
+	http1ListenerName = "http1_listener_0"
+	http1ListenerPort = 10001
+	http1RouteName    = "http1_route"
+	http1ClusterName  = "http1_test_cluster"
+	http1UpstreamPort = 50052 // HTTP server port
+
 	// Resource Type URLs
 	ListenerType    = resourcev3.ListenerType
 	RouteType       = resourcev3.RouteType
@@ -79,7 +86,47 @@ func makeCluster(clusterName string) *cluster.Cluster {
 	}
 }
 
+func makeHttp1Cluster(clusterName string) *cluster.Cluster {
+	return &cluster.Cluster{
+		Name:                 clusterName,
+		ConnectTimeout:       durationpb.New(5 * time.Second),
+		ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_EDS},
+		EdsClusterConfig: &cluster.Cluster_EdsClusterConfig{
+			EdsConfig: makeConfigSource(),
+		},
+		LbPolicy: cluster.Cluster_ROUND_ROBIN,
+		TypedExtensionProtocolOptions: map[string]*anypb.Any{
+			"envoy.extensions.upstreams.http.v3.HttpProtocolOptions": MustAny(&upstreamhttp.HttpProtocolOptions{
+				UpstreamProtocolOptions: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig_{
+					ExplicitHttpConfig: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig{
+						ProtocolConfig: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig_HttpProtocolOptions{
+							HttpProtocolOptions: &core.Http1ProtocolOptions{},
+						},
+					},
+				},
+			}),
+		},
+	}
+}
+
 func makeVirtualHost(virtualHostName string, domains []string, clusterName string) *route.VirtualHost {
+	return &route.VirtualHost{
+		Name:    virtualHostName,
+		Domains: domains,
+		Routes: []*route.Route{{
+			Match: &route.RouteMatch{
+				PathSpecifier: &route.RouteMatch_Prefix{Prefix: "/"},
+			},
+			Action: &route.Route_Route{
+				Route: &route.RouteAction{
+					ClusterSpecifier: &route.RouteAction_Cluster{Cluster: clusterName},
+				},
+			},
+		}},
+	}
+}
+
+func makeHttp1VirtualHost(virtualHostName string, domains []string, clusterName string) *route.VirtualHost {
 	return &route.VirtualHost{
 		Name:    virtualHostName,
 		Domains: domains,
@@ -188,6 +235,81 @@ func makeHTTPListener(listenerName string, routeConfigName string) *listener.Lis
 					Address:  "0.0.0.0",
 					PortSpecifier: &core.SocketAddress_PortValue{
 						PortValue: listenerPort,
+					},
+				},
+			},
+		},
+		FilterChains: []*listener.FilterChain{{
+			Filters: []*listener.Filter{{
+				Name: "http-connection-manager",
+				ConfigType: &listener.Filter_TypedConfig{
+					TypedConfig: pbst,
+				},
+			}},
+		}},
+	}
+}
+
+func makeHttp1Listener(listenerName string, routeConfigName string) *listener.Listener {
+	routerConfig, _ := anypb.New(&router.Router{})
+	odcdsConfig, _ := anypb.New(makeOdcdsConfig())
+
+	// HTTP filter configuration for HTTP/1.1
+	manager := &hcm.HttpConnectionManager{
+		CodecType:  hcm.HttpConnectionManager_AUTO,
+		StatPrefix: "http1",
+		RouteSpecifier: &hcm.HttpConnectionManager_Rds{
+			Rds: &hcm.Rds{
+				ConfigSource:    makeConfigSource(),
+				RouteConfigName: routeConfigName,
+			},
+		},
+		HttpFilters: []*hcm.HttpFilter{
+			{
+				Name:       "envoy.filters.http.on_demand",
+				ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: odcdsConfig},
+			},
+			{
+				Name:       "http-router",
+				ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: routerConfig},
+			},
+		},
+		AccessLog: []*accesslog.AccessLog{
+			{
+				Name: "envoy.access_loggers.file",
+				ConfigType: &accesslog.AccessLog_TypedConfig{
+					TypedConfig: MustAny(&file_accesslog.FileAccessLog{
+						Path: "/dev/stdout",
+						AccessLogFormat: &file_accesslog.FileAccessLog_LogFormat{
+							LogFormat: &core.SubstitutionFormatString{
+								Format: &core.SubstitutionFormatString_TextFormatSource{
+									TextFormatSource: &core.DataSource{
+										Specifier: &core.DataSource_InlineString{
+											InlineString: "[%START_TIME%] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %GRPC_STATUS%(%GRPC_STATUS_NUMBER%) %BYTES_SENT% %DURATION% CTD %CONNECTION_TERMINATION_DETAILS% URAC %UPSTREAM_REQUEST_ATTEMPT_COUNT% DWBS %DOWNSTREAM_WIRE_BYTES_SENT% USWBR %UPSTREAM_WIRE_BYTES_RECEIVED% UTFR %UPSTREAM_TRANSPORT_FAILURE_REASON% UH %UPSTREAM_HOST% UC %UPSTREAM_CLUSTER% GRPC_MSG %RESP(grpc-message)%\n",
+										},
+									},
+								},
+							},
+						},
+					}),
+				},
+			},
+		},
+	}
+	pbst, err := anypb.New(manager)
+	if err != nil {
+		panic(err)
+	}
+
+	return &listener.Listener{
+		Name: listenerName,
+		Address: &core.Address{
+			Address: &core.Address_SocketAddress{
+				SocketAddress: &core.SocketAddress{
+					Protocol: core.SocketAddress_TCP,
+					Address:  "0.0.0.0",
+					PortSpecifier: &core.SocketAddress_PortValue{
+						PortValue: http1ListenerPort,
 					},
 				},
 			},
@@ -517,22 +639,26 @@ func main() {
 	endpointCache := xdscache.NewLinearCache(EndpointType, xdscache.WithCustomWildCardMode(false))
 	virtualHostCache := xdscache.NewLinearCache(VirtualHostType, xdscache.WithCustomWildCardMode(true))
 
-	// listenerCache := xdscache.NewLinearCache(ListenerType)
-	// clusterCache := xdscache.NewLinearCache(ClusterType)
-	// routeCache := xdscache.NewLinearCache(RouteType)
-	// endpointCache := xdscache.NewLinearCache(EndpointType)
-	// virtualHostCache := xdscache.NewLinearCache(VirtualHostType)
-
 	// --- Create Resources ---
 	// routeName is the name of the RouteConfiguration object itself
 	// For VHDS, the VirtualHost resource name must be <RouteConfiguration_Name>/<Authority_Header_Value>
-	const expectedAuthority = "localhost:10000" // This is what grpcurl will use to call Envoy
-	virtualHostName := routeName + "/" + expectedAuthority
+	const grpcAuthority = "localhost:10000"  // This is what grpcurl will use to call Envoy (gRPC listener)
+	const http1Authority = "localhost:10001" // This is what curl will use to call Envoy (HTTP/1.1 listener)
+
+	grpcVirtualHostName := routeName + "/" + grpcAuthority
+	http1VirtualHostName := http1RouteName + "/" + http1Authority
 
 	l := makeHTTPListener(listenerName, routeName) // Listener refers to RouteConfiguration named routeName ("local_route")
 	rc := makeRoute(routeName)                     // RouteConfiguration delegates to VHDS
 	// The VirtualHost must match what Envoy will request: <RouteConfigName>/<HostHeader>
-	vh := makeVirtualHost(virtualHostName, []string{expectedAuthority, "*"}, clusterName) // VirtualHost resource
+	vh := makeVirtualHost(grpcVirtualHostName, []string{grpcAuthority, "*"}, clusterName) // VirtualHost resource
+
+	// Create HTTP/1.1 virtual host for HTTP routes
+	vhHttp1 := makeHttp1VirtualHost(http1VirtualHostName, []string{http1Authority, "*"}, http1ClusterName)
+
+	// Create HTTP/1.1 listener and route
+	lHttp1 := makeHttp1Listener(http1ListenerName, http1RouteName)
+	rcHttp1 := makeRoute(http1RouteName)
 
 	// Create original cluster
 	c := makeCluster(clusterName)
@@ -548,17 +674,36 @@ func main() {
 	e2 := makeEndpoint("test_cluster_2", upstreamHost, upstreamPort)
 	e3 := makeEndpoint("test_cluster_3", upstreamHost, upstreamPort)
 
+	// Create HTTP/1.1 cluster and endpoint
+	c4 := makeHttp1Cluster(http1ClusterName)
+	e4 := makeEndpoint(http1ClusterName, upstreamHost, uint32(http1UpstreamPort))
+
 	// --- Populate Linear Caches ---
 	if err := listenerCache.UpdateResource(listenerName, l); err != nil {
 		log.Fatalf("failed to update listener resource in listener cache: %v", err)
+	}
+
+	// Register HTTP/1.1 listener
+	if err := listenerCache.UpdateResource(http1ListenerName, lHttp1); err != nil {
+		log.Fatalf("failed to update HTTP/1.1 listener resource in listener cache: %v", err)
 	}
 
 	if err := routeCache.UpdateResource(routeName, rc); err != nil {
 		log.Fatalf("failed to update route configuration resource in route cache: %v", err)
 	}
 
-	if err := virtualHostCache.UpdateResource(virtualHostName, vh); err != nil { // Store VirtualHost for VHDS
+	// Register HTTP/1.1 route
+	if err := routeCache.UpdateResource(http1RouteName, rcHttp1); err != nil {
+		log.Fatalf("failed to update HTTP/1.1 route configuration resource in route cache: %v", err)
+	}
+
+	if err := virtualHostCache.UpdateResource(grpcVirtualHostName, vh); err != nil { // Store VirtualHost for VHDS
 		log.Fatalf("failed to update virtual host resource in VHDS cache: %v", err)
+	}
+
+	// Register HTTP/1.1 virtual host
+	if err := virtualHostCache.UpdateResource(http1VirtualHostName, vhHttp1); err != nil {
+		log.Fatalf("failed to update HTTP/1.1 virtual host resource in VHDS cache: %v", err)
 	}
 
 	// Update cluster cache with original cluster
@@ -575,6 +720,9 @@ func main() {
 	}
 	if err := clusterCache.UpdateResource("test_cluster_3", c3); err != nil {
 		log.Fatalf("failed to update cluster resource test_cluster_3 in cluster cache: %v", err)
+	}
+	if err := clusterCache.UpdateResource(http1ClusterName, c4); err != nil {
+		log.Fatalf("failed to update cluster resource %s in cluster cache: %v", http1ClusterName, err)
 	}
 
 	// Update endpoint cache with original endpoint
@@ -593,7 +741,12 @@ func main() {
 		log.Fatalf("failed to update endpoint resource test_cluster_3 in endpoint cache: %v", err)
 	}
 
-	log.Printf("Updated Linear caches (LDS: %s, RDS: %s, VHDS: %s, CDS: %s,test_cluster_1,2,3, EDS: %s,test_cluster_1,2,3)", listenerName, routeName, virtualHostName, clusterName, clusterName)
+	// Update endpoint cache with HTTP/1.1 endpoint
+	if err := endpointCache.UpdateResource(http1ClusterName, e4); err != nil {
+		log.Fatalf("failed to update endpoint resource %s in endpoint cache: %v", http1ClusterName, err)
+	}
+
+	log.Printf("Updated Linear caches (LDS: %s, RDS: %s, VHDS: %s, CDS: %s,test_cluster_1,2,3, EDS: %s,test_cluster_1,2,3, %s)", listenerName, routeName, grpcVirtualHostName, clusterName, clusterName, http1ClusterName)
 
 	// --- Create MuxCache for ADS (LDS, RDS, CDS, EDS) ---
 	muxCache := &xdscache.MuxCache{
