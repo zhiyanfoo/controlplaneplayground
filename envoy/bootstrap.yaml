@@ -26,6 +26,7 @@ node:
         - test_cluster
         - test_cluster_1
         - test_cluster_2
+        - http1_test_cluster
 
 admin:
   address:
