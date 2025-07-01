@@ -20,6 +20,7 @@ import (
 	router "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	upstreamhttp "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
+	clusterservice "github.com/envoyproxy/go-control-plane/envoy/service/cluster/v3"
 	discoveryservice "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	routeservice "github.com/envoyproxy/go-control-plane/envoy/service/route/v3"
 	xdscache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
@@ -123,6 +124,28 @@ func makeVirtualHost(virtualHostName string, domains []string, clusterName strin
 				},
 			},
 		}},
+		TypedPerFilterConfig: map[string]*anypb.Any{
+			"envoy.filters.http.on_demand": MustAny(&ondemand.PerRouteConfig{
+				Odcds: &ondemand.OnDemandCds{
+					Source: &core.ConfigSource{
+						ResourceApiVersion: resourcev3.DefaultAPIVersion,
+						ConfigSourceSpecifier: &core.ConfigSource_ApiConfigSource{
+							ApiConfigSource: &core.ApiConfigSource{
+								ApiType:             core.ApiConfigSource_DELTA_GRPC,
+								TransportApiVersion: resourcev3.DefaultAPIVersion,
+								GrpcServices: []*core.GrpcService{{
+									TargetSpecifier: &core.GrpcService_EnvoyGrpc_{
+										EnvoyGrpc: &core.GrpcService_EnvoyGrpc{ClusterName: "xds_cluster"},
+									},
+								}},
+							},
+						},
+					},
+					ResourcesLocator: fmt.Sprintf("xdstp:///envoy.config.cluster.v3.Cluster/%s", clusterName),
+					Timeout:          durationpb.New(5 * time.Second),
+				},
+			}),
+		},
 	}
 }
 
@@ -140,6 +163,28 @@ func makeHttp1VirtualHost(virtualHostName string, domains []string, clusterName 
 				},
 			},
 		}},
+		TypedPerFilterConfig: map[string]*anypb.Any{
+			"envoy.filters.http.on_demand": MustAny(&ondemand.PerRouteConfig{
+				Odcds: &ondemand.OnDemandCds{
+					Source: &core.ConfigSource{
+						ResourceApiVersion: resourcev3.DefaultAPIVersion,
+						ConfigSourceSpecifier: &core.ConfigSource_ApiConfigSource{
+							ApiConfigSource: &core.ApiConfigSource{
+								ApiType:             core.ApiConfigSource_DELTA_GRPC,
+								TransportApiVersion: resourcev3.DefaultAPIVersion,
+								GrpcServices: []*core.GrpcService{{
+									TargetSpecifier: &core.GrpcService_EnvoyGrpc_{
+										EnvoyGrpc: &core.GrpcService_EnvoyGrpc{ClusterName: "xds_cluster"},
+									},
+								}},
+							},
+						},
+					},
+					ResourcesLocator: fmt.Sprintf("xdstp:///envoy.config.cluster.v3.Cluster/%s", clusterName),
+					Timeout:          durationpb.New(5 * time.Second),
+				},
+			}),
+		},
 	}
 }
 
@@ -787,6 +832,8 @@ func main() {
 	discoveryservice.RegisterAggregatedDiscoveryServiceServer(grpcServer, srv)
 	// Register dedicated VHDS server
 	routeservice.RegisterVirtualHostDiscoveryServiceServer(grpcServer, srv)
+	// Register dedicated CDS server for ODCDS
+	clusterservice.RegisterClusterDiscoveryServiceServer(grpcServer, srv)
 
 	log.Printf("xDS control plane: ADS and VHDS (Delta GRPC) services listening on %d\n", gRPCport)
 	go func() {
