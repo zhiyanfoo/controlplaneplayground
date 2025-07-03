@@ -24,9 +24,9 @@ node:
     initial_clusters:
       clusters:
         # - test_cluster
-        - test_cluster_1
-        - test_cluster_2
-        # - http1_test_cluster
+        - xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_1
+        - xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_2
+        # - xdstp:///envoy.config.cluster.v3.Cluster/http1_test_cluster
 
 admin:
   address:

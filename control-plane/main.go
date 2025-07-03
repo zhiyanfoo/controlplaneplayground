@@ -41,7 +41,7 @@ const (
 	listenerName     = "listener_0"
 	listenerPort     = 10000
 	routeName        = "local_route"
-	clusterName      = "test_cluster"
+	clusterName      = "xdstp:///envoy.config.cluster.v3.Cluster/test_cluster"
 	upstreamHost     = "127.0.0.1"
 	nodeID           = "test-id" // Node ID served by this control plane
 
@@ -49,7 +49,7 @@ const (
 	http1ListenerName = "http1_listener_0"
 	http1ListenerPort = 10001
 	http1RouteName    = "http1_route"
-	http1ClusterName  = "http1_test_cluster"
+	http1ClusterName  = "xdstp:///envoy.config.cluster.v3.Cluster/http1_test_cluster"
 	http1UpstreamPort = 50052 // HTTP server port
 
 	// Resource Type URLs
@@ -141,7 +141,7 @@ func makeVirtualHost(virtualHostName string, domains []string, clusterName strin
 							},
 						},
 					},
-					ResourcesLocator: fmt.Sprintf("xdstp:///envoy.config.cluster.v3.Cluster/%s", clusterName),
+					ResourcesLocator: clusterName,
 					Timeout:          durationpb.New(5 * time.Second),
 				},
 			}),
@@ -180,7 +180,7 @@ func makeHttp1VirtualHost(virtualHostName string, domains []string, clusterName 
 							},
 						},
 					},
-					ResourcesLocator: fmt.Sprintf("xdstp:///envoy.config.cluster.v3.Cluster/%s", clusterName),
+					ResourcesLocator: clusterName,
 					Timeout:          durationpb.New(5 * time.Second),
 				},
 			}),
@@ -710,18 +710,18 @@ func main() {
 	e := makeEndpoint(clusterName, upstreamHost, upstreamPort)
 
 	// Create three additional clusters
-	c1 := makeCluster("test_cluster_1")
-	c2 := makeCluster("test_cluster_2")
-	c3 := makeCluster("test_cluster_3")
+	c1 := makeCluster("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_1")
+	c2 := makeCluster("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_2")
+	c3 := makeCluster("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_3")
 
 	// Create corresponding endpoints for each additional cluster
-	e1 := makeEndpoint("test_cluster_1", upstreamHost, upstreamPort)
-	e2 := makeEndpoint("test_cluster_2", upstreamHost, upstreamPort)
-	e3 := makeEndpoint("test_cluster_3", upstreamHost, upstreamPort)
+	e1 := makeEndpoint("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_1", upstreamHost, upstreamPort)
+	e2 := makeEndpoint("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_2", upstreamHost, upstreamPort)
+	e3 := makeEndpoint("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_3", upstreamHost, upstreamPort)
 
 	// Create HTTP/1.1 cluster and endpoint
-	c4 := makeHttp1Cluster(http1ClusterName)
-	e4 := makeEndpoint(http1ClusterName, upstreamHost, uint32(http1UpstreamPort))
+	c4 := makeHttp1Cluster("xdstp:///envoy.config.cluster.v3.Cluster/http1_test_cluster")
+	e4 := makeEndpoint("xdstp:///envoy.config.cluster.v3.Cluster/http1_test_cluster", upstreamHost, uint32(http1UpstreamPort))
 
 	// --- Populate Linear Caches ---
 	if err := listenerCache.UpdateResource(listenerName, l); err != nil {
@@ -757,17 +757,17 @@ func main() {
 	}
 
 	// Update cluster cache with additional clusters
-	if err := clusterCache.UpdateResource("test_cluster_1", c1); err != nil {
+	if err := clusterCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_1", c1); err != nil {
 		log.Fatalf("failed to update cluster resource test_cluster_1 in cluster cache: %v", err)
 	}
-	if err := clusterCache.UpdateResource("test_cluster_2", c2); err != nil {
+	if err := clusterCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_2", c2); err != nil {
 		log.Fatalf("failed to update cluster resource test_cluster_2 in cluster cache: %v", err)
 	}
-	if err := clusterCache.UpdateResource("test_cluster_3", c3); err != nil {
+	if err := clusterCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_3", c3); err != nil {
 		log.Fatalf("failed to update cluster resource test_cluster_3 in cluster cache: %v", err)
 	}
-	if err := clusterCache.UpdateResource(http1ClusterName, c4); err != nil {
-		log.Fatalf("failed to update cluster resource %s in cluster cache: %v", http1ClusterName, err)
+	if err := clusterCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/http1_test_cluster", c4); err != nil {
+		log.Fatalf("failed to update cluster resource %s in cluster cache: %v", "http1_test_cluster", err)
 	}
 
 	// Update endpoint cache with original endpoint
@@ -776,19 +776,19 @@ func main() {
 	}
 
 	// Update endpoint cache with additional endpoints
-	if err := endpointCache.UpdateResource("test_cluster_1", e1); err != nil {
+	if err := endpointCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_1", e1); err != nil {
 		log.Fatalf("failed to update endpoint resource test_cluster_1 in endpoint cache: %v", err)
 	}
-	if err := endpointCache.UpdateResource("test_cluster_2", e2); err != nil {
+	if err := endpointCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_2", e2); err != nil {
 		log.Fatalf("failed to update endpoint resource test_cluster_2 in endpoint cache: %v", err)
 	}
-	if err := endpointCache.UpdateResource("test_cluster_3", e3); err != nil {
+	if err := endpointCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_3", e3); err != nil {
 		log.Fatalf("failed to update endpoint resource test_cluster_3 in endpoint cache: %v", err)
 	}
 
 	// Update endpoint cache with HTTP/1.1 endpoint
-	if err := endpointCache.UpdateResource(http1ClusterName, e4); err != nil {
-		log.Fatalf("failed to update endpoint resource %s in endpoint cache: %v", http1ClusterName, err)
+	if err := endpointCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/http1_test_cluster", e4); err != nil {
+		log.Fatalf("failed to update endpoint resource %s in endpoint cache: %v", "http1_test_cluster", err)
 	}
 
 	log.Printf("Updated Linear caches (LDS: %s, RDS: %s, VHDS: %s, CDS: %s,test_cluster_1,2,3, EDS: %s,test_cluster_1,2,3, %s)", listenerName, routeName, grpcVirtualHostName, clusterName, clusterName, http1ClusterName)
