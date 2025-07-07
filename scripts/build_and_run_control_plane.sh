@@ -7,7 +7,7 @@ WORKSPACE_ROOT="$SCRIPT_DIR/.."
 
 echo "Building control plane..."
 cd "$WORKSPACE_ROOT/control-plane"
-go build -o cp main.go
+go build -o cp *.go
 
 echo "Running control plane... (Press Ctrl+C to stop)"
 ./cp 

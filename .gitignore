@@ -1,5 +1,7 @@
 control-plane/cp
 test-server/server
 control-plane/xds_debug.log
+cli/cli
 
 scripts/run_envoy.out
+xds_debug.log

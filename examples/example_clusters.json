@@ -1,0 +1,72 @@
+{
+  "server_address": "localhost:18000",
+  "resources": [
+    {
+      "type_url": "type.googleapis.com/envoy.config.cluster.v3.Cluster",
+      "name": "xdstp:///envoy.config.cluster.v3.Cluster/new_cluster_1",
+      "data": {
+        "name": "xdstp:///envoy.config.cluster.v3.Cluster/new_cluster_1",
+        "connectTimeout": "5s",
+        "type": "EDS",
+        "edsClusterConfig": {
+          "edsConfig": {
+            "ads": {}
+          }
+        },
+        "lbPolicy": "ROUND_ROBIN",
+        "typedExtensionProtocolOptions": {
+          "envoy.extensions.upstreams.http.v3.HttpProtocolOptions": {
+            "explicitHttpConfig": {
+              "http2ProtocolOptions": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "type_url": "type.googleapis.com/envoy.config.cluster.v3.Cluster",
+      "name": "xdstp:///envoy.config.cluster.v3.Cluster/new_cluster_2",
+      "data": {
+        "name": "xdstp:///envoy.config.cluster.v3.Cluster/new_cluster_2",
+        "connectTimeout": "5s",
+        "type": "EDS",
+        "edsClusterConfig": {
+          "edsConfig": {
+            "ads": {}
+          }
+        },
+        "lbPolicy": "ROUND_ROBIN",
+        "typedExtensionProtocolOptions": {
+          "envoy.extensions.upstreams.http.v3.HttpProtocolOptions": {
+            "explicitHttpConfig": {
+              "http2ProtocolOptions": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "type_url": "type.googleapis.com/envoy.config.endpoint.v3.ClusterLoadAssignment",
+      "name": "xdstp:///envoy.config.cluster.v3.Cluster/new_cluster_1",
+      "data": {
+        "clusterName": "xdstp:///envoy.config.cluster.v3.Cluster/new_cluster_1",
+        "endpoints": [
+          {
+            "lbEndpoints": [
+              {
+                "endpoint": {
+                  "address": {
+                    "socketAddress": {
+                      "address": "127.0.0.1",
+                      "portValue": 50051
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+} 

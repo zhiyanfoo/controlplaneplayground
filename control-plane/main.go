@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"controlplaneplayground/pb"
 	"fmt"
 	"log"
 	"net"
@@ -834,8 +835,11 @@ func main() {
 	routeservice.RegisterVirtualHostDiscoveryServiceServer(grpcServer, srv)
 	// Register dedicated CDS server for ODCDS
 	clusterservice.RegisterClusterDiscoveryServiceServer(grpcServer, srv)
+	// Register ResourceManager service
+	resourceManagerService := NewResourceManagerService(listenerCache, clusterCache, routeCache, endpointCache, virtualHostCache)
+	pb.RegisterResourceManagerServer(grpcServer, resourceManagerService)
 
-	log.Printf("xDS control plane: ADS and VHDS (Delta GRPC) services listening on %d\n", gRPCport)
+	log.Printf("xDS control plane: ADS, VHDS, CDS, and ResourceManager services listening on %d\n", gRPCport)
 	go func() {
 		if err = grpcServer.Serve(lis); err != nil {
 			log.Fatal(err)
