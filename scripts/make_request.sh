@@ -5,6 +5,12 @@ set -e
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 WORKSPACE_ROOT="$SCRIPT_DIR/.."
 
+# Default port
+DEFAULT_PORT=10000
+
+# Parse command line arguments
+PORT=${1:-$DEFAULT_PORT}
+
 # Check if grpcurl is installed
 if ! command -v grpcurl &> /dev/null
 then
@@ -12,14 +18,14 @@ then
     exit 1
 fi
 
-echo "Sending request via grpcurl to Envoy (localhost:10000)..."
+echo "Sending request via grpcurl to Envoy (localhost:$PORT)..."
 
 grpcurl -plaintext \
     -import-path "$WORKSPACE_ROOT/test-server" \
     -proto "$WORKSPACE_ROOT/test-server/test.proto" \
     -d '{"name": "Playground User"}' \
-    -authority "localhost:10000" \
-    localhost:10000 test.TestService/SayHello
+    -authority "localhost:$PORT" \
+    localhost:$PORT test.TestService/SayHello
 
 if [ $? -eq 0 ]; then
     echo "grpcurl request successful!"

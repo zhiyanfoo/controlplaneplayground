@@ -52,6 +52,15 @@ const (
 	http1ClusterName  = "xdstp:///envoy.config.cluster.v3.Cluster/http1_test_cluster"
 	http1UpstreamPort = 50052 // HTTP server port
 
+	// Dynamic vhost specific constants
+	dynamicRouteName    = "dynamic_route"
+	dynamicListenerPort = 10002
+	dynamicAuthority    = "localhost:10002"
+
+	// Access log format constants
+	HTTP1AccessLogFormat = "[%START_TIME%] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %BYTES_SENT% %DURATION% %UPSTREAM_HOST% %UPSTREAM_CLUSTER%\n"
+	HTTP2AccessLogFormat = "[%START_TIME%] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %GRPC_STATUS%(%GRPC_STATUS_NUMBER%) %BYTES_SENT% %DURATION% CTD %CONNECTION_TERMINATION_DETAILS% URAC %UPSTREAM_REQUEST_ATTEMPT_COUNT% DWBS %DOWNSTREAM_WIRE_BYTES_SENT% USWBR %UPSTREAM_WIRE_BYTES_RECEIVED% UTFR %UPSTREAM_TRANSPORT_FAILURE_REASON% UH %UPSTREAM_HOST% UC %UPSTREAM_CLUSTER% GRPC_MSG %RESP(grpc-message)%\n"
+
 	// Resource Type URLs
 	ListenerType    = resourcev3.ListenerType
 	RouteType       = resourcev3.RouteType
@@ -63,6 +72,15 @@ const (
 )
 
 // --- Resource Generation Functions ---
+
+// ListenerConfig holds configuration for HTTP listeners
+type ListenerConfig struct {
+	Name            string
+	RouteConfigName string
+	StatPrefix      string
+	Port            uint32
+	AccessLogFormat string
+}
 
 func makeCluster(clusterName string) *cluster.Cluster {
 	return &cluster.Cluster{
@@ -220,18 +238,18 @@ func makeRoute(routeName string) *route.RouteConfiguration {
 	}
 }
 
-func makeHTTPListener(listenerName string, routeConfigName string) *listener.Listener {
+func makeHTTPListener(config ListenerConfig) *listener.Listener {
 	routerConfig, _ := anypb.New(&router.Router{})
 	odcdsConfig, _ := anypb.New(makeOdcdsConfig())
 
 	// HTTP filter configuration
 	manager := &hcm.HttpConnectionManager{
 		CodecType:  hcm.HttpConnectionManager_AUTO,
-		StatPrefix: "http",
+		StatPrefix: config.StatPrefix,
 		RouteSpecifier: &hcm.HttpConnectionManager_Rds{
 			Rds: &hcm.Rds{
 				ConfigSource:    makeConfigSource(),
-				RouteConfigName: routeConfigName,
+				RouteConfigName: config.RouteConfigName,
 			},
 		},
 		HttpFilters: []*hcm.HttpFilter{
@@ -255,7 +273,7 @@ func makeHTTPListener(listenerName string, routeConfigName string) *listener.Lis
 								Format: &core.SubstitutionFormatString_TextFormatSource{
 									TextFormatSource: &core.DataSource{
 										Specifier: &core.DataSource_InlineString{
-											InlineString: "[%START_TIME%] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %GRPC_STATUS%(%GRPC_STATUS_NUMBER%) %BYTES_SENT% %DURATION% CTD %CONNECTION_TERMINATION_DETAILS% URAC %UPSTREAM_REQUEST_ATTEMPT_COUNT% DWBS %DOWNSTREAM_WIRE_BYTES_SENT% USWBR %UPSTREAM_WIRE_BYTES_RECEIVED% UTFR %UPSTREAM_TRANSPORT_FAILURE_REASON% UH %UPSTREAM_HOST% UC %UPSTREAM_CLUSTER% GRPC_MSG %RESP(grpc-message)%\n",
+											InlineString: config.AccessLogFormat,
 										},
 									},
 								},
@@ -272,89 +290,14 @@ func makeHTTPListener(listenerName string, routeConfigName string) *listener.Lis
 	}
 
 	return &listener.Listener{
-		Name: listenerName,
+		Name: config.Name,
 		Address: &core.Address{
 			Address: &core.Address_SocketAddress{
 				SocketAddress: &core.SocketAddress{
 					Protocol: core.SocketAddress_TCP,
 					Address:  "0.0.0.0",
 					PortSpecifier: &core.SocketAddress_PortValue{
-						PortValue: listenerPort,
-					},
-				},
-			},
-		},
-		FilterChains: []*listener.FilterChain{{
-			Filters: []*listener.Filter{{
-				Name: "http-connection-manager",
-				ConfigType: &listener.Filter_TypedConfig{
-					TypedConfig: pbst,
-				},
-			}},
-		}},
-	}
-}
-
-func makeHttp1Listener(listenerName string, routeConfigName string) *listener.Listener {
-	routerConfig, _ := anypb.New(&router.Router{})
-	odcdsConfig, _ := anypb.New(makeOdcdsConfig())
-
-	// HTTP filter configuration for HTTP/1.1
-	manager := &hcm.HttpConnectionManager{
-		CodecType:  hcm.HttpConnectionManager_AUTO,
-		StatPrefix: "http1",
-		RouteSpecifier: &hcm.HttpConnectionManager_Rds{
-			Rds: &hcm.Rds{
-				ConfigSource:    makeConfigSource(),
-				RouteConfigName: routeConfigName,
-			},
-		},
-		HttpFilters: []*hcm.HttpFilter{
-			{
-				Name:       "envoy.filters.http.on_demand",
-				ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: odcdsConfig},
-			},
-			{
-				Name:       "http-router",
-				ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: routerConfig},
-			},
-		},
-		AccessLog: []*accesslog.AccessLog{
-			{
-				Name: "envoy.access_loggers.file",
-				ConfigType: &accesslog.AccessLog_TypedConfig{
-					TypedConfig: MustAny(&file_accesslog.FileAccessLog{
-						Path: "/dev/stdout",
-						AccessLogFormat: &file_accesslog.FileAccessLog_LogFormat{
-							LogFormat: &core.SubstitutionFormatString{
-								Format: &core.SubstitutionFormatString_TextFormatSource{
-									TextFormatSource: &core.DataSource{
-										Specifier: &core.DataSource_InlineString{
-											InlineString: "[%START_TIME%] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %GRPC_STATUS%(%GRPC_STATUS_NUMBER%) %BYTES_SENT% %DURATION% CTD %CONNECTION_TERMINATION_DETAILS% URAC %UPSTREAM_REQUEST_ATTEMPT_COUNT% DWBS %DOWNSTREAM_WIRE_BYTES_SENT% USWBR %UPSTREAM_WIRE_BYTES_RECEIVED% UTFR %UPSTREAM_TRANSPORT_FAILURE_REASON% UH %UPSTREAM_HOST% UC %UPSTREAM_CLUSTER% GRPC_MSG %RESP(grpc-message)%\n",
-										},
-									},
-								},
-							},
-						},
-					}),
-				},
-			},
-		},
-	}
-	pbst, err := anypb.New(manager)
-	if err != nil {
-		panic(err)
-	}
-
-	return &listener.Listener{
-		Name: listenerName,
-		Address: &core.Address{
-			Address: &core.Address_SocketAddress{
-				SocketAddress: &core.SocketAddress{
-					Protocol: core.SocketAddress_TCP,
-					Address:  "0.0.0.0",
-					PortSpecifier: &core.SocketAddress_PortValue{
-						PortValue: http1ListenerPort,
+						PortValue: config.Port,
 					},
 				},
 			},
@@ -693,8 +636,8 @@ func main() {
 	grpcVirtualHostName := routeName + "/" + grpcAuthority
 	http1VirtualHostName := http1RouteName + "/" + http1Authority
 
-	l := makeHTTPListener(listenerName, routeName) // Listener refers to RouteConfiguration named routeName ("local_route")
-	rc := makeRoute(routeName)                     // RouteConfiguration delegates to VHDS
+	l := makeHTTPListener(ListenerConfig{Name: listenerName, RouteConfigName: routeName, StatPrefix: "http", Port: listenerPort, AccessLogFormat: HTTP2AccessLogFormat}) // Listener refers to RouteConfiguration named routeName ("local_route")
+	rc := makeRoute(routeName)                                                                                                                                           // RouteConfiguration delegates to VHDS
 	// The VirtualHost must match what Envoy will request: <RouteConfigName>/<HostHeader>
 	vh := makeVirtualHost(grpcVirtualHostName, []string{grpcAuthority, "*"}, clusterName) // VirtualHost resource
 
@@ -702,8 +645,12 @@ func main() {
 	vhHttp1 := makeHttp1VirtualHost(http1VirtualHostName, []string{http1Authority, "*"}, http1ClusterName)
 
 	// Create HTTP/1.1 listener and route
-	lHttp1 := makeHttp1Listener(http1ListenerName, http1RouteName)
+	lHttp1 := makeHTTPListener(ListenerConfig{Name: http1ListenerName, RouteConfigName: http1RouteName, StatPrefix: "http1", Port: http1ListenerPort, AccessLogFormat: HTTP1AccessLogFormat})
 	rcHttp1 := makeRoute(http1RouteName)
+
+	// Create dynamic vhost listener and route
+	lDynamic := makeHTTPListener(ListenerConfig{Name: "dynamic_listener_0", RouteConfigName: dynamicRouteName, StatPrefix: "dynamic", Port: dynamicListenerPort, AccessLogFormat: HTTP1AccessLogFormat})
+	rcDynamic := makeRoute(dynamicRouteName)
 
 	// Create original cluster
 	c := makeCluster(clusterName)
@@ -723,6 +670,12 @@ func main() {
 	c4 := makeHttp1Cluster("xdstp:///envoy.config.cluster.v3.Cluster/http1_test_cluster")
 	e4 := makeEndpoint("xdstp:///envoy.config.cluster.v3.Cluster/http1_test_cluster", upstreamHost, uint32(http1UpstreamPort))
 
+	// Create dynamic clusters and endpoints
+	dynamicCluster1 := makeCluster("xdstp:///envoy.config.cluster.v3.Cluster/dynamic_cluster_test_1")
+	dynamicCluster2 := makeCluster("xdstp:///envoy.config.cluster.v3.Cluster/dynamic_cluster_test_2")
+	dynamicEndpoint1 := makeEndpoint("xdstp:///envoy.config.cluster.v3.Cluster/dynamic_cluster_test_1", upstreamHost, 50053)
+	dynamicEndpoint2 := makeEndpoint("xdstp:///envoy.config.cluster.v3.Cluster/dynamic_cluster_test_2", upstreamHost, 50054)
+
 	// --- Populate Linear Caches ---
 	if err := listenerCache.UpdateResource(listenerName, l); err != nil {
 		log.Fatalf("failed to update listener resource in listener cache: %v", err)
@@ -733,6 +686,11 @@ func main() {
 		log.Fatalf("failed to update HTTP/1.1 listener resource in listener cache: %v", err)
 	}
 
+	// Register dynamic listener
+	if err := listenerCache.UpdateResource("dynamic_listener_0", lDynamic); err != nil {
+		log.Fatalf("failed to update dynamic listener resource in listener cache: %v", err)
+	}
+
 	if err := routeCache.UpdateResource(routeName, rc); err != nil {
 		log.Fatalf("failed to update route configuration resource in route cache: %v", err)
 	}
@@ -740,6 +698,11 @@ func main() {
 	// Register HTTP/1.1 route
 	if err := routeCache.UpdateResource(http1RouteName, rcHttp1); err != nil {
 		log.Fatalf("failed to update HTTP/1.1 route configuration resource in route cache: %v", err)
+	}
+
+	// Register dynamic route
+	if err := routeCache.UpdateResource(dynamicRouteName, rcDynamic); err != nil {
+		log.Fatalf("failed to update dynamic route configuration resource in route cache: %v", err)
 	}
 
 	if err := virtualHostCache.UpdateResource(grpcVirtualHostName, vh); err != nil { // Store VirtualHost for VHDS
@@ -770,6 +733,14 @@ func main() {
 		log.Fatalf("failed to update cluster resource %s in cluster cache: %v", "http1_test_cluster", err)
 	}
 
+	// Register dynamic clusters
+	if err := clusterCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/dynamic_cluster_test_1", dynamicCluster1); err != nil {
+		log.Fatalf("failed to update dynamic cluster resource dynamic_cluster_test_1 in cluster cache: %v", err)
+	}
+	if err := clusterCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/dynamic_cluster_test_2", dynamicCluster2); err != nil {
+		log.Fatalf("failed to update dynamic cluster resource dynamic_cluster_test_2 in cluster cache: %v", err)
+	}
+
 	// Update endpoint cache with original endpoint
 	if err := endpointCache.UpdateResource(clusterName, e); err != nil {
 		log.Fatalf("failed to update endpoint resource in endpoint cache: %v", err)
@@ -789,6 +760,14 @@ func main() {
 	// Update endpoint cache with HTTP/1.1 endpoint
 	if err := endpointCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/http1_test_cluster", e4); err != nil {
 		log.Fatalf("failed to update endpoint resource %s in endpoint cache: %v", "http1_test_cluster", err)
+	}
+
+	// Register dynamic endpoints
+	if err := endpointCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/dynamic_cluster_test_1", dynamicEndpoint1); err != nil {
+		log.Fatalf("failed to update dynamic endpoint resource dynamic_cluster_test_1 in endpoint cache: %v", err)
+	}
+	if err := endpointCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/dynamic_cluster_test_2", dynamicEndpoint2); err != nil {
+		log.Fatalf("failed to update dynamic endpoint resource dynamic_cluster_test_2 in endpoint cache: %v", err)
 	}
 
 	log.Printf("Updated Linear caches (LDS: %s, RDS: %s, VHDS: %s, CDS: %s,test_cluster_1,2,3, EDS: %s,test_cluster_1,2,3, %s)", listenerName, routeName, grpcVirtualHostName, clusterName, clusterName, http1ClusterName)
