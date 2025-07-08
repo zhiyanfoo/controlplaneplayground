@@ -3,3 +3,4 @@ test-server/server
 control-plane/xds_debug.log
 
 scripts/run_envoy.out
+test_services.log
