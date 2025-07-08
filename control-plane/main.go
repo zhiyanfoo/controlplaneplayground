@@ -173,7 +173,7 @@ func makeRoute(routeName string) *route.RouteConfiguration {
 
 func makeHTTPListener(listenerName string, routeConfigName string) *listener.Listener {
 	routerConfig, _ := anypb.New(&router.Router{})
-	odcdsConfig, _ := anypb.New(makeOdcdsConfig())
+	odcdsConfig, _ := anypb.New(&ondemand.OnDemand{})
 
 	// HTTP filter configuration
 	manager := &hcm.HttpConnectionManager{
@@ -248,7 +248,7 @@ func makeHTTPListener(listenerName string, routeConfigName string) *listener.Lis
 
 func makeHttp1Listener(listenerName string, routeConfigName string) *listener.Listener {
 	routerConfig, _ := anypb.New(&router.Router{})
-	odcdsConfig, _ := anypb.New(makeOdcdsConfig())
+	odcdsConfig, _ := anypb.New(&ondemand.OnDemand{})
 
 	// HTTP filter configuration for HTTP/1.1
 	manager := &hcm.HttpConnectionManager{
@@ -351,29 +351,6 @@ func makeVhdsConfigSource() *core.ConfigSource {
 	}
 }
 
-// makeOdcdsConfig creates the On Demand Discovery configuration
-func makeOdcdsConfig() *ondemand.OnDemand {
-	return &ondemand.OnDemand{
-		Odcds: &ondemand.OnDemandCds{
-			Source: &core.ConfigSource{
-				ResourceApiVersion: resourcev3.DefaultAPIVersion,
-				ConfigSourceSpecifier: &core.ConfigSource_ApiConfigSource{
-					ApiConfigSource: &core.ApiConfigSource{
-						ApiType:             core.ApiConfigSource_DELTA_GRPC,
-						TransportApiVersion: resourcev3.DefaultAPIVersion,
-						GrpcServices: []*core.GrpcService{{
-							TargetSpecifier: &core.GrpcService_EnvoyGrpc_{
-								EnvoyGrpc: &core.GrpcService_EnvoyGrpc{ClusterName: "xds_cluster"},
-							},
-						}},
-					},
-				},
-			},
-			ResourcesLocator: "xdstp:///envoy.config.cluster.v3.Cluster/*",
-			Timeout:          durationpb.New(5 * time.Second),
-		},
-	}
-}
 
 // MustAny converts a proto message to Any
 func MustAny(p proto.Message) *anypb.Any {
