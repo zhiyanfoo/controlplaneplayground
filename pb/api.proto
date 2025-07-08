@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package controlplane;
+
+option go_package = "controlplaneplayground/pb";
+
+// Resource management service
+service ResourceManager {
+  // Update or create a resource
+  rpc UpdateResource(UpdateResourceRequest) returns (UpdateResourceResponse);
+  
+  // Delete a resource
+  rpc DeleteResource(DeleteResourceRequest) returns (DeleteResourceResponse);
+}
+
+// Request to update/create a resource
+message UpdateResourceRequest {
+  string type_url = 1;  // Type URL of the resource (e.g., "type.googleapis.com/envoy.config.cluster.v3.Cluster")
+  string name = 2;      // Name of the resource
+  bytes data = 3;       // Serialized resource data
+}
+
+// Response to update/create request
+message UpdateResourceResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Request to delete a resource
+message DeleteResourceRequest {
+  string type_url = 1;  // Type URL of the resource
+  string name = 2;      // Name of the resource
+}
+
+// Response to delete request
+message DeleteResourceResponse {
+  bool success = 1;
+  string message = 2;
+} 

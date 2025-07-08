@@ -5,6 +5,10 @@ set -e
 mkdir -p testpb
 protoc --go_out=./testpb --go_opt=module=controlplaneplayground/testpb \
        --go-grpc_out=./testpb --go-grpc_opt=module=controlplaneplayground/testpb \
-       test-server/test.proto
+       testpb/test.proto
+
+protoc --go_out=./pb --go_opt=module=controlplaneplayground/pb \
+       --go-grpc_out=./pb --go-grpc_opt=module=controlplaneplayground/pb \
+       pb/api.proto
 
 echo "Protobuf code generated successfully." 
