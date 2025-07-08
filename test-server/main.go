@@ -10,6 +10,7 @@ import (
 	testpb "controlplaneplayground/testpb"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 // server is used to implement test.TestServiceServer.
@@ -42,6 +43,10 @@ func main() {
 	fmt.Printf("Test server listening at %v\n", lis.Addr())
 	s := grpc.NewServer()
 	testpb.RegisterTestServiceServer(s, &server{message: message})
+
+	// Register reflection service on gRPC server
+	reflection.Register(s)
+
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}

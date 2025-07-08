@@ -20,12 +20,16 @@ fi
 
 echo "Sending request via grpcurl to Envoy (localhost:$PORT)..."
 
+# grpcurl -plaintext \
+#     -d '{"name": "Playground User"}' \
+#     -authority "localhost:$PORT" \
+#     localhost:$PORT test.TestService/SayHello
+
 grpcurl -plaintext \
-    -import-path "$WORKSPACE_ROOT/test-server" \
-    -proto "$WORKSPACE_ROOT/test-server/test.proto" \
-    -d '{"name": "Playground User"}' \
-    -authority "localhost:$PORT" \
-    localhost:$PORT test.TestService/SayHello
+  -import-path "$WORKSPACE_ROOT/testpb" \
+  -proto "$WORKSPACE_ROOT/testpb/test.proto" \
+  -d '{"name": "Test User"}' \
+  localhost:50051 test.TestService/SayHello
 
 if [ $? -eq 0 ]; then
     echo "grpcurl request successful!"
