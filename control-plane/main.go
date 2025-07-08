@@ -88,7 +88,7 @@ func makeCluster(clusterName string) *cluster.Cluster {
 		ConnectTimeout:       durationpb.New(5 * time.Second),
 		ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_EDS},
 		EdsClusterConfig: &cluster.Cluster_EdsClusterConfig{
-			EdsConfig: makeConfigSource(),
+			EdsConfig: makeADSConfigSource(),
 		},
 		LbPolicy: cluster.Cluster_ROUND_ROBIN,
 		TypedExtensionProtocolOptions: map[string]*anypb.Any{
@@ -111,7 +111,7 @@ func makeHttp1Cluster(clusterName string) *cluster.Cluster {
 		ConnectTimeout:       durationpb.New(5 * time.Second),
 		ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_EDS},
 		EdsClusterConfig: &cluster.Cluster_EdsClusterConfig{
-			EdsConfig: makeConfigSource(),
+			EdsConfig: makeADSConfigSource(),
 		},
 		LbPolicy: cluster.Cluster_ROUND_ROBIN,
 		TypedExtensionProtocolOptions: map[string]*anypb.Any{
@@ -145,11 +145,7 @@ func makeVirtualHost(virtualHostName string, domains []string, clusterName strin
 		TypedPerFilterConfig: map[string]*anypb.Any{
 			"envoy.filters.http.on_demand": MustAny(&ondemand.PerRouteConfig{
 				Odcds: &ondemand.OnDemandCds{
-					Source: &core.ConfigSource{
-						ResourceApiVersion: resourcev3.DefaultAPIVersion,
-						ConfigSourceSpecifier: &core.ConfigSource_Ads{
-						},
-					},
+					Source: makeADSConfigSource(),
 					Timeout:          durationpb.New(1 * time.Second),
 				},
 			}),
@@ -199,7 +195,7 @@ func makeHTTPListener(config ListenerConfig) *listener.Listener {
 		StatPrefix: config.StatPrefix,
 		RouteSpecifier: &hcm.HttpConnectionManager_Rds{
 			Rds: &hcm.Rds{
-				ConfigSource:    makeConfigSource(),
+				ConfigSource:    makeADSConfigSource(),
 				RouteConfigName: config.RouteConfigName,
 			},
 		},
@@ -264,13 +260,14 @@ func makeHTTPListener(config ListenerConfig) *listener.Listener {
 	}
 }
 
-// Reverted makeConfigSource to its original simpler form
-func makeConfigSource() *core.ConfigSource {
+// Reverted makeADSConfigSource to its original simpler form
+func makeADSConfigSource() *core.ConfigSource {
 	return &core.ConfigSource{
 		ResourceApiVersion: resourcev3.DefaultAPIVersion,
 		ConfigSourceSpecifier: &core.ConfigSource_Ads{
 			Ads: &core.AggregatedConfigSource{},
 		},
+		InitialFetchTimeout: durationpb.New(1 * time.Second),
 	}
 }
 
