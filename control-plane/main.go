@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"controlplaneplayground/pb"
 	"fmt"
 	"log"
 	"net"
@@ -145,8 +146,8 @@ func makeVirtualHost(virtualHostName string, domains []string, clusterName strin
 		TypedPerFilterConfig: map[string]*anypb.Any{
 			"envoy.filters.http.on_demand": MustAny(&ondemand.PerRouteConfig{
 				Odcds: &ondemand.OnDemandCds{
-					Source: makeADSConfigSource(),
-					Timeout:          durationpb.New(1 * time.Second),
+					Source:  makeADSConfigSource(),
+					Timeout: durationpb.New(1 * time.Second),
 				},
 			}),
 		},
@@ -290,7 +291,6 @@ func makeVhdsConfigSource() *core.ConfigSource {
 		InitialFetchTimeout: durationpb.New(time.Second),
 	}
 }
-
 
 // MustAny converts a proto message to Any
 func MustAny(p proto.Message) *anypb.Any {
@@ -739,7 +739,11 @@ func main() {
 	// Register dedicated CDS server for ODCDS
 	clusterservice.RegisterClusterDiscoveryServiceServer(grpcServer, srv)
 
-	log.Printf("xDS control plane: ADS and VHDS (Delta GRPC) services listening on %d\n", gRPCport)
+	// Register ResourceManager service for CLI operations
+	resourceManagerService := NewResourceManagerService(listenerCache, clusterCache, routeCache, endpointCache, virtualHostCache)
+	pb.RegisterResourceManagerServer(grpcServer, resourceManagerService)
+
+	log.Printf("xDS control plane: ADS, VHDS (Delta GRPC), and ResourceManager services listening on %d\n", gRPCport)
 	go func() {
 		if err = grpcServer.Serve(lis); err != nil {
 			log.Fatal(err)
