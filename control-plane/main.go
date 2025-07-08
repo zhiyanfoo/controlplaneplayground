@@ -129,58 +129,9 @@ func makeVirtualHost(virtualHostName string, domains []string, clusterName strin
 				Odcds: &ondemand.OnDemandCds{
 					Source: &core.ConfigSource{
 						ResourceApiVersion: resourcev3.DefaultAPIVersion,
-						ConfigSourceSpecifier: &core.ConfigSource_ApiConfigSource{
-							ApiConfigSource: &core.ApiConfigSource{
-								ApiType:             core.ApiConfigSource_DELTA_GRPC,
-								TransportApiVersion: resourcev3.DefaultAPIVersion,
-								GrpcServices: []*core.GrpcService{{
-									TargetSpecifier: &core.GrpcService_EnvoyGrpc_{
-										EnvoyGrpc: &core.GrpcService_EnvoyGrpc{ClusterName: "xds_cluster"},
-									},
-								}},
-							},
+						ConfigSourceSpecifier: &core.ConfigSource_Ads{
 						},
 					},
-					ResourcesLocator: clusterName,
-					Timeout:          durationpb.New(5 * time.Second),
-				},
-			}),
-		},
-	}
-}
-
-func makeHttp1VirtualHost(virtualHostName string, domains []string, clusterName string) *route.VirtualHost {
-	return &route.VirtualHost{
-		Name:    virtualHostName,
-		Domains: domains,
-		Routes: []*route.Route{{
-			Match: &route.RouteMatch{
-				PathSpecifier: &route.RouteMatch_Prefix{Prefix: "/"},
-			},
-			Action: &route.Route_Route{
-				Route: &route.RouteAction{
-					ClusterSpecifier: &route.RouteAction_Cluster{Cluster: clusterName},
-				},
-			},
-		}},
-		TypedPerFilterConfig: map[string]*anypb.Any{
-			"envoy.filters.http.on_demand": MustAny(&ondemand.PerRouteConfig{
-				Odcds: &ondemand.OnDemandCds{
-					Source: &core.ConfigSource{
-						ResourceApiVersion: resourcev3.DefaultAPIVersion,
-						ConfigSourceSpecifier: &core.ConfigSource_ApiConfigSource{
-							ApiConfigSource: &core.ApiConfigSource{
-								ApiType:             core.ApiConfigSource_DELTA_GRPC,
-								TransportApiVersion: resourcev3.DefaultAPIVersion,
-								GrpcServices: []*core.GrpcService{{
-									TargetSpecifier: &core.GrpcService_EnvoyGrpc_{
-										EnvoyGrpc: &core.GrpcService_EnvoyGrpc{ClusterName: "xds_cluster"},
-									},
-								}},
-							},
-						},
-					},
-					ResourcesLocator: clusterName,
 					Timeout:          durationpb.New(5 * time.Second),
 				},
 			}),
@@ -699,7 +650,7 @@ func main() {
 	vh := makeVirtualHost(grpcVirtualHostName, []string{grpcAuthority, "*"}, clusterName) // VirtualHost resource
 
 	// Create HTTP/1.1 virtual host for HTTP routes
-	vhHttp1 := makeHttp1VirtualHost(http1VirtualHostName, []string{http1Authority, "*"}, http1ClusterName)
+	vhHttp1 := makeVirtualHost(http1VirtualHostName, []string{http1Authority, "*"}, http1ClusterName)
 
 	// Create HTTP/1.1 listener and route
 	lHttp1 := makeHttp1Listener(http1ListenerName, http1RouteName)
