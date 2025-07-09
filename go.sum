@@ -1,7 +1,7 @@
 cel.dev/expr v0.20.0 h1:OunBvVCfvpWlt4dN7zg3FM6TDkzOePe1+foGJ9AXeeI=
 cel.dev/expr v0.20.0/go.mod h1:MrpN08Q+lEBs+bGYdLxxHkZoUSsCp0nSKTs0nTymJgw=
-github.com/DataDog/go-control-plane v0.13.4-0.20250422191546-6aa8b729178e h1:6iQ1ppATpOLxYxOzDcxl4gKbI/Arph3lvwQYTO8ZaTI=
-github.com/DataDog/go-control-plane v0.13.4-0.20250422191546-6aa8b729178e/go.mod h1:D8/0gVH79cd9cXse2nAwJ7K0GujYzJ63JR0IEoWuu2M=
+github.com/DataDog/go-control-plane v0.13.5-0.20250707202611-611e5f882d98 h1:3hAgX9ho9PYylJmWmC+1xNbI/LeqwB2rqF8d4pRxr7M=
+github.com/DataDog/go-control-plane v0.13.5-0.20250707202611-611e5f882d98/go.mod h1:D8/0gVH79cd9cXse2nAwJ7K0GujYzJ63JR0IEoWuu2M=
 github.com/DataDog/go-control-plane/envoy v1.32.4-0.20250422191546-6aa8b729178e h1:8kgRIbsNBmrbdSpgIp3ZkUDYbsdlc7oUIpP2nNtvx64=
 github.com/DataDog/go-control-plane/envoy v1.32.4-0.20250422191546-6aa8b729178e/go.mod h1:2dn73jFhVMBsgVCq7Z/jsPsTzhDKwYZOHLf3Uz8Rj0s=
 github.com/cncf/xds/go v0.0.0-20250121191232-2f005788dc42 h1:Om6kYQYDUk5wWbT0t0q6pvyM49i9XZAv9dDrkDA7gjk=

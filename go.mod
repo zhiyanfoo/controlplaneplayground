@@ -5,7 +5,7 @@ go 1.24.2
 // We use the Datadog fork of the control-plane to include fixes not yet upstreamed
 // As go-control-plane is the source of envoy protobuf files, we need to update it regularly
 replace (
-	github.com/envoyproxy/go-control-plane => /Users/zhiyan.foo/dd/go-control-plane
+	github.com/envoyproxy/go-control-plane => github.com/DataDog/go-control-plane v0.13.5-0.20250707202611-611e5f882d98
 	github.com/envoyproxy/go-control-plane/envoy => github.com/DataDog/go-control-plane/envoy v1.32.4-0.20250422191546-6aa8b729178e
 )
 
