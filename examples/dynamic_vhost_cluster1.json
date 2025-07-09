@@ -19,23 +19,13 @@
         ],
         "typedPerFilterConfig": {
           "envoy.filters.http.on_demand": {
+            "@type": "type.googleapis.com/envoy.extensions.filters.http.on_demand.v3.PerRouteConfig",
             "odcds": {
               "source": {
-                "resourceApiVersion": "V3",
-                "apiConfigSource": {
-                  "apiType": "DELTA_GRPC",
-                  "transportApiVersion": "V3",
-                  "grpcServices": [
-                    {
-                      "envoyGrpc": {
-                        "clusterName": "xds_cluster"
-                      }
-                    }
-                  ]
-                }
+                "ads": {},
+                "resourceApiVersion": "V3"
               },
-              "resourcesLocator": "xdstp:///envoy.config.cluster.v3.Cluster/dynamic_cluster_test_1",
-              "timeout": "5s"
+              "timeout": "1s"
             }
           }
         }

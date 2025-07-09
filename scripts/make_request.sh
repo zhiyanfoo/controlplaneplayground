@@ -29,7 +29,7 @@ grpcurl -plaintext \
   -import-path "$WORKSPACE_ROOT/testpb" \
   -proto "$WORKSPACE_ROOT/testpb/test.proto" \
   -d '{"name": "Test User"}' \
-  localhost:50051 test.TestService/SayHello
+  "localhost:$PORT" test.TestService/SayHello
 
 if [ $? -eq 0 ]; then
     echo "grpcurl request successful!"

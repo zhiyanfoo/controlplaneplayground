@@ -9,6 +9,7 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoregistry"
 
 	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
@@ -133,8 +134,7 @@ func (s *ResourceManagerService) DeleteResource(ctx context.Context, req *pb.Del
 
 // Deserialization functions using protojson unmarshaling
 func (s *ResourceManagerService) deserializeListener(data []byte) (*listener.Listener, error) {
-	unmarshaler := protojson.UnmarshalOptions{
-	}
+	unmarshaler := protojson.UnmarshalOptions{}
 	var l listener.Listener
 	if err := unmarshaler.Unmarshal(data, &l); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON to protobuf: %v", err)
@@ -147,8 +147,7 @@ func (s *ResourceManagerService) deserializeListener(data []byte) (*listener.Lis
 }
 
 func (s *ResourceManagerService) deserializeCluster(data []byte) (*cluster.Cluster, error) {
-	unmarshaler := protojson.UnmarshalOptions{
-	}
+	unmarshaler := protojson.UnmarshalOptions{}
 	var c cluster.Cluster
 	if err := unmarshaler.Unmarshal(data, &c); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON to protobuf: %v", err)
@@ -162,8 +161,7 @@ func (s *ResourceManagerService) deserializeCluster(data []byte) (*cluster.Clust
 }
 
 func (s *ResourceManagerService) deserializeRoute(data []byte) (*route.RouteConfiguration, error) {
-	unmarshaler := protojson.UnmarshalOptions{
-	}
+	unmarshaler := protojson.UnmarshalOptions{}
 	var rc route.RouteConfiguration
 	if err := unmarshaler.Unmarshal(data, &rc); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON to protobuf: %v", err)
@@ -176,8 +174,7 @@ func (s *ResourceManagerService) deserializeRoute(data []byte) (*route.RouteConf
 }
 
 func (s *ResourceManagerService) deserializeEndpoint(data []byte) (*endpoint.ClusterLoadAssignment, error) {
-	unmarshaler := protojson.UnmarshalOptions{
-	}
+	unmarshaler := protojson.UnmarshalOptions{}
 	var cla endpoint.ClusterLoadAssignment
 	if err := unmarshaler.Unmarshal(data, &cla); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON to protobuf: %v", err)
@@ -197,6 +194,9 @@ func (s *ResourceManagerService) deserializeEndpoint(data []byte) (*endpoint.Clu
 
 func (s *ResourceManagerService) deserializeVirtualHost(data []byte) (*route.VirtualHost, error) {
 	unmarshaler := protojson.UnmarshalOptions{
+		DiscardUnknown: true,
+		Resolver:       protoregistry.GlobalTypes,
+		AllowPartial:   true,
 	}
 	var vh route.VirtualHost
 	if err := unmarshaler.Unmarshal(data, &vh); err != nil {

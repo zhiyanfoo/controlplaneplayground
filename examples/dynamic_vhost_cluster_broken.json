@@ -1,0 +1,23 @@
+{
+  "server_address": "localhost:18000",
+  "resources": [
+    {
+      "type_url": "type.googleapis.com/envoy.config.route.v3.VirtualHost",
+      "name": "dynamic_route/localhost:10002",
+      "data": {
+        "name": "dynamic_route/localhost:10002",
+        "domains": ["localhost:10002", "*"],
+        "routes": [
+          {
+            "match": {
+              "prefix": "/"
+            },
+            "route": {
+              "cluster": "xdstp:///envoy.config.cluster.v3.Cluster/dynamic_cluster_test_garbage"
+            }
+          }
+        ]
+      }
+    }
+  ]
+} 
