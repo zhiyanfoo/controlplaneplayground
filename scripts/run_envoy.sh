@@ -13,5 +13,7 @@ then
 fi
 
 echo "Starting Envoy with config $WORKSPACE_ROOT/envoy/bootstrap.yaml... (Press Ctrl+C to stop)"
-~/tools/bin/envoy5 -c "$WORKSPACE_ROOT/envoy/bootstrap.yaml" \
+ENVOY="$HOME/tools/bin/envoy9"
+which $ENVOY
+$ENVOY -c "$WORKSPACE_ROOT/envoy/bootstrap.yaml" \
   --log-level debug --component-log-level dns:info
