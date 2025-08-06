@@ -2,19 +2,21 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"time"
 
 	"controlplaneplayground/testpb"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 )
 
 func main() {
-	// Connect to Envoy proxy
-	conn, err := grpc.Dial("localhost:9000", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// Connect to Envoy proxy with TLS (skip certificate verification)
+	creds := credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})
+	conn, err := grpc.Dial("localhost:9000", grpc.WithTransportCredentials(creds))
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
 	}
@@ -31,7 +33,7 @@ func main() {
 		
 		// Use the session ID from previous request if we have one
 		if sessionID != "" {
-			ctx = metadata.AppendToOutgoingContext(ctx, "x-session-id", sessionID)
+			ctx = metadata.AppendToOutgoingContext(ctx, "jukeboxsessionaffinity", sessionID)
 		}
 		
 		req := &testpb.HelloRequest{
@@ -44,7 +46,7 @@ func main() {
 			continue
 		}
 		
-		if sessionHeaders := header.Get("x-session-id"); len(sessionHeaders) > 0 {
+		if sessionHeaders := header.Get("jukeboxsessionaffinity"); len(sessionHeaders) > 0 {
 			sessionID = sessionHeaders[0]
 		}
 		

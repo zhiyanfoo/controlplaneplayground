@@ -6,7 +6,19 @@ static_resources:
         address: 0.0.0.0
         port_value: 9000
     filter_chains:
-    - filters:
+    - transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+          common_tls_context:
+            tls_certificates:
+            - certificate_chain:
+                filename: "/Users/zhiyan.foo/src/controlplaneplayground/scenarios/stateful_sessions/certs/cert.pem"
+              private_key:
+                filename: "/Users/zhiyan.foo/src/controlplaneplayground/scenarios/stateful_sessions/certs/key.pem"
+            alpn_protocols:
+            - h2
+      filters:
       - name: envoy.filters.network.http_connection_manager
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
@@ -22,15 +34,19 @@ static_resources:
                   prefix: "/"
                 route:
                   cluster: backend_cluster
+                typed_per_filter_config:
+                  envoy.filters.http.stateful_session:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.stateful_session.v3.StatefulSessionPerRoute
+                    stateful_session:
+                      session_state:
+                        name: envoy.http.stateful_session.header
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.http.stateful_session.header.v3.HeaderBasedSessionState
+                          name: "jukeboxsessionaffinity"
           http_filters:
           - name: envoy.filters.http.stateful_session
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.stateful_session.v3.StatefulSession
-              session_state:
-                name: envoy.http.stateful_session.header
-                typed_config:
-                  "@type": type.googleapis.com/envoy.extensions.http.stateful_session.header.v3.HeaderBasedSessionState
-                  name: "x-session-id"
           - name: envoy.filters.http.router
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
