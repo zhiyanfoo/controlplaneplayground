@@ -1,0 +1,83 @@
+source/common/router/config_impl.h:84
+class PerFilterConfigs : public Logger::Loggable<Logger::Id::http> {
+public:
+  ...
+
+  struct FilterConfig {
+    RouteSpecificFilterConfigConstSharedPtr config_;
+  ...
+}
+
+envoy/router/router.h
+123:using RouteSpecificFilterConfigConstSharedPtr = std::shared_ptr<const RouteSpecificFilterConfig>;
+
+
+source/extensions/filters/http/on_demand/on_demand_update.h:19
+class OnDemandFilterConfig : public Router::RouteSpecificFilterConfig {
+  ...
+private:
+  DecodeHeadersBehaviorPtr behavior_;
+}
+
+source/extensions/filters/http/on_demand/on_demand_update.cc:24
+class RdsCdsDecodeHeadersBehavior : public DecodeHeadersBehavior {
+...
+private:
+  Upstream::OdCdsApiHandlePtr odcds_;
+}
+
+envoy/upstream/cluster_manager.h
+155:using OdCdsApiHandlePtr = std::unique_ptr<OdCdsApiHandle>;
+
+envoy/upstream/cluster_manager.h
+127:class OdCdsApiHandle {
+
+source/common/upstream/cluster_manager_impl.h
+466:  class OdCdsApiHandleImpl : public OdCdsApiHandle {
+  private:
+    ClusterManagerImpl& parent_;
+    OdCdsApiSharedPtr odcds_;
+  };
+
+envoy/upstream/cluster_manager.h
+216:using OdCdsApiSharedPtr = std::shared_ptr<OdCdsApi>;
+
+source/common/upstream/od_cds_api_impl.h:33
+class OdCdsApiImpl : public OdCdsApi,
+                     Envoy::Config::SubscriptionBase<envoy::config::cluster::v3::Cluster>,
+                     Logger::Loggable<Logger::Id::upstream> {
+...
+  Config::SubscriptionPtr subscription_;
+}
+
+envoy/config/subscription.h
+237:using SubscriptionPtr = std::unique_ptr<Subscription>;
+
+
+source/extensions/config_subscription/grpc/grpc_subscription_impl.h
+20:class GrpcSubscriptionImpl : public Subscription,
+{
+private:
+  GrpcMuxSharedPtr grpc_mux_;
+}
+
+envoy/config/grpc_mux.h
+130:using GrpcMuxSharedPtr = std::shared_ptr<GrpcMux>;
+
+source/extensions/config_subscription/grpc/new_grpc_mux_impl.h:32
+class NewGrpcMuxImpl
+    : public GrpcMux,
+      public GrpcStreamCallbacks<envoy::service::discovery::v3::DeltaDiscoveryResponse>,
+      Logger::Loggable<Logger::Id::config> {
+  ...
+  class WatchImpl : public GrpcMuxWatch {
+  ...
+  }
+  ...
+}
+
+envoy/config/grpc_mux.h
+52:using GrpcMuxWatchPtr = std::unique_ptr<GrpcMuxWatch>;
+
+source/extensions/config_subscription/grpc/grpc_subscription_impl.h
+55:  GrpcMuxWatchPtr watch_;
