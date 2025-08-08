@@ -186,9 +186,31 @@ func makeRoute(routeName string) *route.RouteConfiguration {
 	}
 }
 
+func makeOdcdsConfig() (*anypb.Any, error) {
+	return anypb.New(&ondemand.OnDemand{
+		Odcds:  &ondemand.OnDemandCds{
+			Source: &core.ConfigSource{
+				ConfigSourceSpecifier: &core.ConfigSource_Ads{
+					Ads: &core.AggregatedConfigSource{},
+				},
+				ResourceApiVersion: core.ApiVersion_V3,
+			},
+			Timeout: durationpb.New(time.Second),
+		},
+	})
+}
+
 func makeHTTPListener(config ListenerConfig) *listener.Listener {
-	routerConfig, _ := anypb.New(&router.Router{})
-	odcdsConfig, _ := anypb.New(&ondemand.OnDemand{})
+	routerConfig, err := anypb.New(&router.Router{})
+	if err != nil {
+		panic(err)
+	}
+
+
+	odcdsConfig, err :=  makeOdcdsConfig()
+	if err != nil {
+		panic(err)
+	}
 
 	// HTTP filter configuration
 	manager := &hcm.HttpConnectionManager{
@@ -540,7 +562,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to open debug log file %s: %v", debugLogFilename, err)
 	}
-	defer debugFile.Close()
+	defer func() {
+		if err := debugFile.Close(); err != nil {
+			log.Printf("Failed to close debug file: %v", err)
+		}
+	}()
 	debugFileLogger := log.New(debugFile, "", log.LstdFlags) // Using standard log flags, no prefix from logger itself
 
 	log.Printf("Control plane starting. Detailed xDS debug logs will be written to %s", debugLogFilename)
@@ -723,9 +749,8 @@ func main() {
 	srv := serverv3.NewServer(ctx, muxCache, cb)
 
 	// --- Start gRPC Server ---
-	var grpcServer *grpc.Server
 	// Remove or keep gRPC interceptor based on needs. For now, removing it as we have xDS layer logging.
-	grpcServer = grpc.NewServer()
+	grpcServer := grpc.NewServer()
 	// Listen on loopback only
 	lis, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", gRPCport))
 	if err != nil {

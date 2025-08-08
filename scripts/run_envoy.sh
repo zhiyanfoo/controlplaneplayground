@@ -16,5 +16,5 @@ echo "Starting Envoy with config $WORKSPACE_ROOT/envoy/bootstrap.yaml... (Press 
 ENVOY="$HOME/tools/bin/envoy9"
 which $ENVOY
 $ENVOY -c "$WORKSPACE_ROOT/envoy/bootstrap.yaml" \
-  --log-level debug --component-log-level dns:info \
+  --component-log-level dns:info \
   --concurrency 1
