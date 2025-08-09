@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"controlplaneplayground/pb"
+	"encoding/json"
 	"fmt"
+	"html/template"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"sync"
 	"time"
@@ -29,6 +32,7 @@ import (
 	serverv3 "github.com/envoyproxy/go-control-plane/pkg/server/v3"
 
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -37,6 +41,7 @@ import (
 const (
 	debugLogFilename = "xds_debug.log"
 	gRPCport         = 18000
+	HTTPport         = 8080 // HTTP server for cache display
 	XDSHost          = "localhost"
 	upstreamPort     = 50051 // Port of the test gRPC server
 	listenerName     = "listener_0"
@@ -323,6 +328,237 @@ func MustAny(p proto.Message) *anypb.Any {
 	return anypb
 }
 
+// CacheDisplayHandler handles HTTP requests to display cache contents
+type CacheDisplayHandler struct {
+	listenerCache    *xdscache.LinearCache
+	clusterCache     *xdscache.LinearCache
+	routeCache       *xdscache.LinearCache
+	endpointCache    *xdscache.LinearCache
+	virtualHostCache *xdscache.LinearCache
+}
+
+// NewCacheDisplayHandler creates a new cache display handler
+func NewCacheDisplayHandler(listenerCache, clusterCache, routeCache, endpointCache, virtualHostCache *xdscache.LinearCache) *CacheDisplayHandler {
+	return &CacheDisplayHandler{
+		listenerCache:    listenerCache,
+		clusterCache:     clusterCache,
+		routeCache:       routeCache,
+		endpointCache:    endpointCache,
+		virtualHostCache: virtualHostCache,
+	}
+}
+
+// ResourceInfo holds information about a cached resource
+type ResourceInfo struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	JSONData string `json:"json_data"`
+}
+
+// CacheState holds the complete state of all caches
+type CacheState struct {
+	Listeners    []ResourceInfo `json:"listeners"`
+	Clusters     []ResourceInfo `json:"clusters"`
+	Routes       []ResourceInfo `json:"routes"`
+	Endpoints    []ResourceInfo `json:"endpoints"`
+	VirtualHosts []ResourceInfo `json:"virtual_hosts"`
+}
+
+// ServeHTTP handles the cache display request
+func (h *CacheDisplayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	cacheState := h.getCacheState()
+
+	// Check if JSON output is requested
+	if r.URL.Query().Get("format") == "json" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(cacheState)
+		return
+	}
+
+	// Serve HTML page
+	w.Header().Set("Content-Type", "text/html")
+	tmpl := `
+<!DOCTYPE html>
+<html>
+<head>
+    <title>XDS Cache Contents</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .resource-type { margin: 20px 0; }
+        .resource-type h2 { color: #333; border-bottom: 2px solid #ddd; padding-bottom: 5px; }
+        .resource { margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
+        .resource-name { font-weight: bold; color: #0066cc; }
+        .resource-json { 
+            background: #f5f5f5; 
+            padding: 10px; 
+            margin: 5px 0; 
+            border-radius: 3px; 
+            overflow-x: auto;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .refresh-btn { 
+            background: #4CAF50; 
+            color: white; 
+            padding: 10px 20px; 
+            text-decoration: none; 
+            border-radius: 5px; 
+            display: inline-block; 
+            margin-bottom: 20px;
+        }
+        .json-btn { 
+            background: #2196F3; 
+            color: white; 
+            padding: 5px 10px; 
+            text-decoration: none; 
+            border-radius: 3px; 
+            display: inline-block; 
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>XDS Cache Contents</h1>
+    <a href="/" class="refresh-btn">Refresh</a>
+    <a href="/?format=json" class="json-btn">View as JSON</a>
+
+    <div class="resource-type">
+        <h2>Listeners ({{len .Listeners}})</h2>
+        {{range .Listeners}}
+        <div class="resource">
+            <div class="resource-name">{{.Name}}</div>
+            <div class="resource-json">{{.JSONData}}</div>
+        </div>
+        {{end}}
+    </div>
+
+    <div class="resource-type">
+        <h2>Clusters ({{len .Clusters}})</h2>
+        {{range .Clusters}}
+        <div class="resource">
+            <div class="resource-name">{{.Name}}</div>
+            <div class="resource-json">{{.JSONData}}</div>
+        </div>
+        {{end}}
+    </div>
+
+    <div class="resource-type">
+        <h2>Routes ({{len .Routes}})</h2>
+        {{range .Routes}}
+        <div class="resource">
+            <div class="resource-name">{{.Name}}</div>
+            <div class="resource-json">{{.JSONData}}</div>
+        </div>
+        {{end}}
+    </div>
+
+    <div class="resource-type">
+        <h2>Endpoints ({{len .Endpoints}})</h2>
+        {{range .Endpoints}}
+        <div class="resource">
+            <div class="resource-name">{{.Name}}</div>
+            <div class="resource-json">{{.JSONData}}</div>
+        </div>
+        {{end}}
+    </div>
+
+    <div class="resource-type">
+        <h2>Virtual Hosts ({{len .VirtualHosts}})</h2>
+        {{range .VirtualHosts}}
+        <div class="resource">
+            <div class="resource-name">{{.Name}}</div>
+            <div class="resource-json">{{.JSONData}}</div>
+        </div>
+        {{end}}
+    </div>
+</body>
+</html>
+`
+	t := template.Must(template.New("cache").Parse(tmpl))
+	t.Execute(w, cacheState)
+}
+
+// getCacheState retrieves the current state of all caches
+func (h *CacheDisplayHandler) getCacheState() CacheState {
+	state := CacheState{
+		Listeners:    []ResourceInfo{},
+		Clusters:     []ResourceInfo{},
+		Routes:       []ResourceInfo{},
+		Endpoints:    []ResourceInfo{},
+		VirtualHosts: []ResourceInfo{},
+	}
+
+	// Get resources from all caches
+	listenerResources := h.listenerCache.GetResources()
+	clusterResources := h.clusterCache.GetResources()
+	routeResources := h.routeCache.GetResources()
+	endpointResources := h.endpointCache.GetResources()
+	vhostResources := h.virtualHostCache.GetResources()
+
+	// Process listeners
+	for name, resource := range listenerResources {
+		if listener, ok := resource.(*listener.Listener); ok {
+			jsonData, _ := protojson.MarshalOptions{Indent: "  "}.Marshal(listener)
+			state.Listeners = append(state.Listeners, ResourceInfo{
+				Name:     name,
+				Type:     "Listener",
+				JSONData: string(jsonData),
+			})
+		}
+	}
+
+	// Process clusters
+	for name, resource := range clusterResources {
+		if cluster, ok := resource.(*cluster.Cluster); ok {
+			jsonData, _ := protojson.MarshalOptions{Indent: "  "}.Marshal(cluster)
+			state.Clusters = append(state.Clusters, ResourceInfo{
+				Name:     name,
+				Type:     "Cluster",
+				JSONData: string(jsonData),
+			})
+		}
+	}
+
+	// Process routes
+	for name, resource := range routeResources {
+		if route, ok := resource.(*route.RouteConfiguration); ok {
+			jsonData, _ := protojson.MarshalOptions{Indent: "  "}.Marshal(route)
+			state.Routes = append(state.Routes, ResourceInfo{
+				Name:     name,
+				Type:     "Route",
+				JSONData: string(jsonData),
+			})
+		}
+	}
+
+	// Process endpoints
+	for name, resource := range endpointResources {
+		if endpoint, ok := resource.(*endpoint.ClusterLoadAssignment); ok {
+			jsonData, _ := protojson.MarshalOptions{Indent: "  "}.Marshal(endpoint)
+			state.Endpoints = append(state.Endpoints, ResourceInfo{
+				Name:     name,
+				Type:     "Endpoint",
+				JSONData: string(jsonData),
+			})
+		}
+	}
+
+	// Process virtual hosts
+	for name, resource := range vhostResources {
+		if vhost, ok := resource.(*route.VirtualHost); ok {
+			jsonData, _ := protojson.MarshalOptions{Indent: "  "}.Marshal(vhost)
+			state.VirtualHosts = append(state.VirtualHosts, ResourceInfo{
+				Name:     name,
+				Type:     "VirtualHost",
+				JSONData: string(jsonData),
+			})
+		}
+	}
+
+	return state
+}
+
 // --- Custom Callbacks for Logging Requests and Responses ---
 
 // requestResponseLogger implements serverv3.Callbacks for detailed xDS message logging.
@@ -578,150 +814,10 @@ func main() {
 	endpointCache := xdscache.NewLinearCache(EndpointType, xdscache.WithCustomWildCardMode(false))
 	virtualHostCache := xdscache.NewLinearCache(VirtualHostType, xdscache.WithCustomWildCardMode(true))
 
-	// --- Create Resources ---
-	// routeName is the name of the RouteConfiguration object itself
-	// For VHDS, the VirtualHost resource name must be <RouteConfiguration_Name>/<Authority_Header_Value>
-	const grpcAuthority = "localhost:10000"  // This is what grpcurl will use to call Envoy (gRPC listener)
-	const http1Authority = "localhost:10001" // This is what curl will use to call Envoy (HTTP/1.1 listener)
+	// --- Initialize Empty Caches ---
+	// Resources will be populated via CLI commands
 
-	grpcVirtualHostName := routeName + "/" + grpcAuthority
-	http1VirtualHostName := http1RouteName + "/" + http1Authority
-
-	l := makeHTTPListener(ListenerConfig{Name: listenerName, RouteConfigName: routeName, StatPrefix: "http", Port: listenerPort, AccessLogFormat: HTTP2AccessLogFormat}) // Listener refers to RouteConfiguration named routeName ("local_route")
-	rc := makeRoute(routeName)                                                                                                                                           // RouteConfiguration delegates to VHDS
-	// The VirtualHost must match what Envoy will request: <RouteConfigName>/<HostHeader>
-	vh := makeVirtualHost(grpcVirtualHostName, []string{grpcAuthority, "*"}, clusterName) // VirtualHost resource
-
-	// Create HTTP/1.1 virtual host for HTTP routes
-	vhHttp1 := makeVirtualHost(http1VirtualHostName, []string{http1Authority, "*"}, http1ClusterName)
-
-	// Create HTTP/1.1 listener and route
-	lHttp1 := makeHTTPListener(ListenerConfig{Name: http1ListenerName, RouteConfigName: http1RouteName, StatPrefix: "http1", Port: http1ListenerPort, AccessLogFormat: HTTP1AccessLogFormat})
-	rcHttp1 := makeRoute(http1RouteName)
-
-	// Create dynamic vhost listener and route
-	lDynamic := makeHTTPListener(ListenerConfig{Name: "dynamic_listener_0", RouteConfigName: dynamicRouteName, StatPrefix: "dynamic", Port: dynamicListenerPort, AccessLogFormat: HTTP1AccessLogFormat})
-	rcDynamic := makeRoute(dynamicRouteName)
-
-	// Create original cluster
-	c := makeCluster(clusterName)
-	e := makeEndpoint(clusterName, upstreamHost, upstreamPort)
-
-	// Create three additional clusters
-	c1 := makeCluster("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_1")
-	c2 := makeCluster("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_2")
-	c3 := makeCluster("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_3")
-
-	// Create corresponding endpoints for each additional cluster
-	e1 := makeEndpoint("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_1", upstreamHost, upstreamPort)
-	e2 := makeEndpoint("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_2", upstreamHost, upstreamPort)
-	e3 := makeEndpoint("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_3", upstreamHost, upstreamPort)
-
-	// Create HTTP/1.1 cluster and endpoint
-	c4 := makeHttp1Cluster("xdstp:///envoy.config.cluster.v3.Cluster/http1_test_cluster")
-	e4 := makeEndpoint("xdstp:///envoy.config.cluster.v3.Cluster/http1_test_cluster", upstreamHost, uint32(http1UpstreamPort))
-
-	// Create dynamic clusters and endpoints
-	dynamicCluster1 := makeCluster("xdstp:///envoy.config.cluster.v3.Cluster/dynamic_cluster_test_1")
-	dynamicCluster2 := makeCluster("xdstp:///envoy.config.cluster.v3.Cluster/dynamic_cluster_test_2")
-	dynamicEndpoint1 := makeEndpoint("xdstp:///envoy.config.cluster.v3.Cluster/dynamic_cluster_test_1", upstreamHost, 50053)
-	dynamicEndpoint2 := makeEndpoint("xdstp:///envoy.config.cluster.v3.Cluster/dynamic_cluster_test_2", upstreamHost, 50054)
-
-	// --- Populate Linear Caches ---
-	if err := listenerCache.UpdateResource(listenerName, l); err != nil {
-		log.Fatalf("failed to update listener resource in listener cache: %v", err)
-	}
-
-	// Register HTTP/1.1 listener
-	if err := listenerCache.UpdateResource(http1ListenerName, lHttp1); err != nil {
-		log.Fatalf("failed to update HTTP/1.1 listener resource in listener cache: %v", err)
-	}
-
-	// Register dynamic listener
-	if err := listenerCache.UpdateResource("dynamic_listener_0", lDynamic); err != nil {
-		log.Fatalf("failed to update dynamic listener resource in listener cache: %v", err)
-	}
-
-	if err := routeCache.UpdateResource(routeName, rc); err != nil {
-		log.Fatalf("failed to update route configuration resource in route cache: %v", err)
-	}
-
-	// Register HTTP/1.1 route
-	if err := routeCache.UpdateResource(http1RouteName, rcHttp1); err != nil {
-		log.Fatalf("failed to update HTTP/1.1 route configuration resource in route cache: %v", err)
-	}
-
-	// Register dynamic route
-	if err := routeCache.UpdateResource(dynamicRouteName, rcDynamic); err != nil {
-		log.Fatalf("failed to update dynamic route configuration resource in route cache: %v", err)
-	}
-
-	if err := virtualHostCache.UpdateResource(grpcVirtualHostName, vh); err != nil { // Store VirtualHost for VHDS
-		log.Fatalf("failed to update virtual host resource in VHDS cache: %v", err)
-	}
-
-	// Register HTTP/1.1 virtual host
-	if err := virtualHostCache.UpdateResource(http1VirtualHostName, vhHttp1); err != nil {
-		log.Fatalf("failed to update HTTP/1.1 virtual host resource in VHDS cache: %v", err)
-	}
-
-	// Update cluster cache with original cluster
-	if err := clusterCache.UpdateResource(clusterName, c); err != nil {
-		log.Fatalf("failed to update cluster resource in cluster cache: %v", err)
-	}
-
-	// Update cluster cache with additional clusters
-	if err := clusterCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_1", c1); err != nil {
-		log.Fatalf("failed to update cluster resource test_cluster_1 in cluster cache: %v", err)
-	}
-	if err := clusterCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_2", c2); err != nil {
-		log.Fatalf("failed to update cluster resource test_cluster_2 in cluster cache: %v", err)
-	}
-	if err := clusterCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_3", c3); err != nil {
-		log.Fatalf("failed to update cluster resource test_cluster_3 in cluster cache: %v", err)
-	}
-	if err := clusterCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/http1_test_cluster", c4); err != nil {
-		log.Fatalf("failed to update cluster resource %s in cluster cache: %v", "http1_test_cluster", err)
-	}
-
-	// Register dynamic clusters
-	if err := clusterCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/dynamic_cluster_test_1", dynamicCluster1); err != nil {
-		log.Fatalf("failed to update dynamic cluster resource dynamic_cluster_test_1 in cluster cache: %v", err)
-	}
-	if err := clusterCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/dynamic_cluster_test_2", dynamicCluster2); err != nil {
-		log.Fatalf("failed to update dynamic cluster resource dynamic_cluster_test_2 in cluster cache: %v", err)
-	}
-
-	// Update endpoint cache with original endpoint
-	if err := endpointCache.UpdateResource(clusterName, e); err != nil {
-		log.Fatalf("failed to update endpoint resource in endpoint cache: %v", err)
-	}
-
-	// Update endpoint cache with additional endpoints
-	if err := endpointCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_1", e1); err != nil {
-		log.Fatalf("failed to update endpoint resource test_cluster_1 in endpoint cache: %v", err)
-	}
-	if err := endpointCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_2", e2); err != nil {
-		log.Fatalf("failed to update endpoint resource test_cluster_2 in endpoint cache: %v", err)
-	}
-	if err := endpointCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/test_cluster_3", e3); err != nil {
-		log.Fatalf("failed to update endpoint resource test_cluster_3 in endpoint cache: %v", err)
-	}
-
-	// Update endpoint cache with HTTP/1.1 endpoint
-	if err := endpointCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/http1_test_cluster", e4); err != nil {
-		log.Fatalf("failed to update endpoint resource %s in endpoint cache: %v", "http1_test_cluster", err)
-	}
-
-	// Register dynamic endpoints
-	if err := endpointCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/dynamic_cluster_test_1", dynamicEndpoint1); err != nil {
-		log.Fatalf("failed to update dynamic endpoint resource dynamic_cluster_test_1 in endpoint cache: %v", err)
-	}
-	if err := endpointCache.UpdateResource("xdstp:///envoy.config.cluster.v3.Cluster/dynamic_cluster_test_2", dynamicEndpoint2); err != nil {
-		log.Fatalf("failed to update dynamic endpoint resource dynamic_cluster_test_2 in endpoint cache: %v", err)
-	}
-
-	log.Printf("Updated Linear caches (LDS: %s, RDS: %s, VHDS: %s, CDS: %s,test_cluster_1,2,3, EDS: %s,test_cluster_1,2,3, %s)", listenerName, routeName, grpcVirtualHostName, clusterName, clusterName, http1ClusterName)
+	log.Printf("Initialized empty Linear caches. Use CLI to populate resources.")
 
 	// --- Create MuxCache for ADS (LDS, RDS, CDS, EDS) ---
 	muxCache := &xdscache.MuxCache{
@@ -772,6 +868,17 @@ func main() {
 	go func() {
 		if err = grpcServer.Serve(lis); err != nil {
 			log.Fatal(err)
+		}
+	}()
+
+	// --- Start HTTP Server for Cache Display ---
+	cacheHandler := NewCacheDisplayHandler(listenerCache, clusterCache, routeCache, endpointCache, virtualHostCache)
+	http.Handle("/", cacheHandler)
+	
+	log.Printf("HTTP cache display server listening on http://localhost:%d\n", HTTPport)
+	go func() {
+		if err := http.ListenAndServe(fmt.Sprintf(":%d", HTTPport), nil); err != nil {
+			log.Printf("HTTP server error: %v", err)
 		}
 	}()
 

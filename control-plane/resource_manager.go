@@ -42,7 +42,11 @@ func NewResourceManagerService(listenerCache, clusterCache, routeCache, endpoint
 
 // UpdateResource handles resource update/create requests
 func (s *ResourceManagerService) UpdateResource(ctx context.Context, req *pb.UpdateResourceRequest) (*pb.UpdateResourceResponse, error) {
-	log.Printf("UpdateResource called - TypeURL: %s, Name: %s", req.TypeUrl, req.Name)
+	// Log first 200 chars of data for debugging
+	dataStr := string(req.Data)
+	if len(dataStr) > 200 {
+		dataStr = dataStr[:200] + "..."
+	}
 
 	// Determine which cache to use based on TypeURL
 	var targetCache *xdscache.LinearCache
@@ -66,6 +70,7 @@ func (s *ResourceManagerService) UpdateResource(ctx context.Context, req *pb.Upd
 		targetCache = s.virtualHostCache
 		resource, err = s.deserializeVirtualHost(req.Data)
 	default:
+		log.Printf("DEBUG: Unsupported resource type: %s", req.TypeUrl)
 		return &pb.UpdateResourceResponse{
 			Success: false,
 			Message: fmt.Sprintf("Unsupported resource type: %s", req.TypeUrl),
@@ -73,12 +78,14 @@ func (s *ResourceManagerService) UpdateResource(ctx context.Context, req *pb.Upd
 	}
 
 	if err != nil {
+		log.Printf("DEBUG: Deserialization failed: %v", err)
 		return &pb.UpdateResourceResponse{
 			Success: false,
 			Message: fmt.Sprintf("Failed to deserialize resource: %v", err),
 		}, nil
 	}
 
+	
 	// Update the cache
 	if err := targetCache.UpdateResource(req.Name, resource); err != nil {
 		return &pb.UpdateResourceResponse{
@@ -87,6 +94,32 @@ func (s *ResourceManagerService) UpdateResource(ctx context.Context, req *pb.Upd
 		}, nil
 	}
 
+
+	// Handle wildcard node update if requested
+	if req.WildcardNodeUpdate {
+		nodeID := req.NodeId
+		if nodeID == "" {
+			nodeID = "test-id" // Default node ID
+		}
+		
+		
+		// Create a map with this single resource
+		resources := map[string]struct{}{
+			req.Name: {},
+		}
+		
+		if err := targetCache.UpdateWilcardResourcesForNode(nodeID, resources); err != nil {
+			return &pb.UpdateResourceResponse{
+				Success: false,
+				Message: fmt.Sprintf("Failed to update wildcard resources for node: %v", err),
+			}, nil
+		}
+		
+	}
+	
+	// Log cache state for debugging
+	s.logCacheState()
+	
 	return &pb.UpdateResourceResponse{
 		Success: true,
 		Message: fmt.Sprintf("Successfully updated resource %s in cache", req.Name),
@@ -95,8 +128,6 @@ func (s *ResourceManagerService) UpdateResource(ctx context.Context, req *pb.Upd
 
 // DeleteResource handles resource deletion requests
 func (s *ResourceManagerService) DeleteResource(ctx context.Context, req *pb.DeleteResourceRequest) (*pb.DeleteResourceResponse, error) {
-	log.Printf("DeleteResource called - TypeURL: %s, Name: %s", req.TypeUrl, req.Name)
-
 	// Determine which cache to use based on TypeURL
 	var targetCache *xdscache.LinearCache
 
@@ -140,9 +171,6 @@ func (s *ResourceManagerService) deserializeListener(data []byte) (*listener.Lis
 		return nil, fmt.Errorf("failed to unmarshal JSON to protobuf: %v", err)
 	}
 
-	// Debug logging to show populated fields
-	log.Printf("Deserialized listener: Name=%s", l.Name)
-
 	return &l, nil
 }
 
@@ -152,10 +180,6 @@ func (s *ResourceManagerService) deserializeCluster(data []byte) (*cluster.Clust
 	if err := unmarshaler.Unmarshal(data, &c); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON to protobuf: %v", err)
 	}
-
-	// Debug logging to show populated fields
-	log.Printf("Deserialized cluster: Name=%s, Type=%v, LbPolicy=%v, ConnectTimeout=%v",
-		c.Name, c.GetType(), c.GetLbPolicy(), c.GetConnectTimeout())
 
 	return &c, nil
 }
@@ -167,9 +191,6 @@ func (s *ResourceManagerService) deserializeRoute(data []byte) (*route.RouteConf
 		return nil, fmt.Errorf("failed to unmarshal JSON to protobuf: %v", err)
 	}
 
-	// Debug logging to show populated fields
-	log.Printf("Deserialized route: Name=%s", rc.Name)
-
 	return &rc, nil
 }
 
@@ -178,15 +199,6 @@ func (s *ResourceManagerService) deserializeEndpoint(data []byte) (*endpoint.Clu
 	var cla endpoint.ClusterLoadAssignment
 	if err := unmarshaler.Unmarshal(data, &cla); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON to protobuf: %v", err)
-	}
-
-	// Debug logging to show populated fields
-	log.Printf("Deserialized endpoint: ClusterName=%s, Endpoints=%d",
-		cla.ClusterName, len(cla.Endpoints))
-	if len(cla.Endpoints) > 0 && len(cla.Endpoints[0].LbEndpoints) > 0 {
-		if addr := cla.Endpoints[0].LbEndpoints[0].GetEndpoint().GetAddress().GetSocketAddress(); addr != nil {
-			log.Printf("  Endpoint address: %s:%d", addr.Address, addr.GetPortValue())
-		}
 	}
 
 	return &cla, nil
@@ -203,8 +215,41 @@ func (s *ResourceManagerService) deserializeVirtualHost(data []byte) (*route.Vir
 		return nil, fmt.Errorf("failed to unmarshal JSON to protobuf: %v", err)
 	}
 
-	// Debug logging to show populated fields
-	log.Printf("Deserialized virtual host: Name=%s, Domains=%v", vh.Name, vh.Domains)
-
 	return &vh, nil
+}
+
+// logCacheState logs the current state of all caches for debugging
+func (s *ResourceManagerService) logCacheState() {
+	
+	// Get resources from each cache
+	listenerResources := s.listenerCache.GetResources()
+	clusterResources := s.clusterCache.GetResources()
+	routeResources := s.routeCache.GetResources()
+	endpointResources := s.endpointCache.GetResources()
+	vhostResources := s.virtualHostCache.GetResources()
+	
+	log.Printf("DEBUG: Listeners: %d resources", len(listenerResources))
+	for name := range listenerResources {
+		log.Printf("DEBUG:   - Listener: %s", name)
+	}
+	
+	log.Printf("DEBUG: Clusters: %d resources", len(clusterResources))
+	for name := range clusterResources {
+		log.Printf("DEBUG:   - Cluster: %s", name)
+	}
+	
+	log.Printf("DEBUG: Routes: %d resources", len(routeResources))
+	for name := range routeResources {
+		log.Printf("DEBUG:   - Route: %s", name)
+	}
+	
+	log.Printf("DEBUG: Endpoints: %d resources", len(endpointResources))
+	for name := range endpointResources {
+		log.Printf("DEBUG:   - Endpoint: %s", name)
+	}
+	
+	log.Printf("DEBUG: VirtualHosts: %d resources", len(vhostResources))
+	for name := range vhostResources {
+		log.Printf("DEBUG:   - VirtualHost: %s", name)
+	}
 }

@@ -20,6 +20,7 @@ echo "Sending HTTP request via curl to Envoy HTTP/1.1 listener (localhost:$PORT)
 # Make HTTP request to the test endpoint
 # --fail makes curl fail on HTTP error responses (4xx, 5xx)
 curl --fail \
+  -v \
     -X POST \
     -H "Content-Type: application/json" \
     -H "Host: localhost:$PORT" \

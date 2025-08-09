@@ -17,14 +17,16 @@ import (
 
 // ResourceConfig represents a resource configuration from JSON
 type ResourceConfig struct {
-	TypeURL string          `json:"type_url"`
-	Name    string          `json:"name"`
-	Data    json.RawMessage `json:"data"` // Use RawMessage to preserve JSON structure
+	TypeURL            string          `json:"type_url"`
+	Name               string          `json:"name"`
+	Data               json.RawMessage `json:"data"` // Use RawMessage to preserve JSON structure
+	WildcardNodeUpdate bool            `json:"wildcard_node_update,omitempty"` // If true, call UpdateWildcardResourcesForNode
 }
 
 // Config represents the overall CLI configuration
 type Config struct {
 	ServerAddress string           `json:"server_address"`
+	NodeID        string           `json:"node_id,omitempty"`        // Default node ID for wildcard updates
 	Resources     []ResourceConfig `json:"resources"`
 }
 
@@ -63,10 +65,13 @@ func main() {
 	defer cancel()
 
 	// Process each resource based on action
-	for _, resource := range config.Resources {
+	log.Printf("DEBUG: Processing %d resources", len(config.Resources))
+	for i, resource := range config.Resources {
+		log.Printf("DEBUG: Processing resource %d/%d - Type: %s, Name: %s", i+1, len(config.Resources), resource.TypeURL, resource.Name)
+		
 		switch *action {
 		case "update":
-			err = updateResource(ctx, client, resource)
+			err = updateResource(ctx, client, resource, config)
 		case "delete":
 			err = deleteResource(ctx, client, resource)
 		default:
@@ -74,9 +79,9 @@ func main() {
 		}
 
 		if err != nil {
-			log.Printf("Failed to %s resource %s: %v", *action, resource.Name, err)
+			log.Printf("ERROR: Failed to %s resource %s: %v", *action, resource.Name, err)
 		} else {
-			fmt.Printf("Successfully %sed resource: %s\n", *action, resource.Name)
+			log.Printf("SUCCESS: %sed resource: %s (type: %s)", *action, resource.Name, resource.TypeURL)
 		}
 	}
 }
@@ -100,23 +105,47 @@ func readConfig(filename string) (*Config, error) {
 	return &config, nil
 }
 
-func updateResource(ctx context.Context, client pb.ResourceManagerClient, resource ResourceConfig) error {
+func updateResource(ctx context.Context, client pb.ResourceManagerClient, resource ResourceConfig, config *Config) error {
 	// Convert JSON data to bytes
 	dataBytes, err := json.Marshal(resource.Data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal JSON data: %v", err)
 	}
 
+	log.Printf("DEBUG: Sending update request - Type: %s, Name: %s, Data size: %d bytes, WildcardNodeUpdate: %t", 
+		resource.TypeURL, resource.Name, len(dataBytes), resource.WildcardNodeUpdate)
+	
+	// Log first 500 chars of data for debugging
+	dataStr := string(dataBytes)
+	if len(dataStr) > 500 {
+		dataStr = dataStr[:500] + "..."
+	}
+	log.Printf("DEBUG: Request data: %s", dataStr)
+
+	// Default node ID
+	nodeID := "test-id"
+	if config != nil && config.NodeID != "" {
+		nodeID = config.NodeID
+	}
+
 	req := &pb.UpdateResourceRequest{
-		TypeUrl: resource.TypeURL,
-		Name:    resource.Name,
-		Data:    dataBytes, // Send JSON data as bytes
+		TypeUrl:             resource.TypeURL,
+		Name:                resource.Name,
+		Data:                dataBytes, // Send JSON data as bytes
+		WildcardNodeUpdate:  resource.WildcardNodeUpdate,
+		NodeId:              nodeID,
+	}
+
+	if resource.WildcardNodeUpdate {
+		log.Printf("DEBUG: Will call UpdateWildcardResourcesForNode with nodeID: %s", nodeID)
 	}
 
 	resp, err := client.UpdateResource(ctx, req)
 	if err != nil {
 		return fmt.Errorf("gRPC call failed: %v", err)
 	}
+
+	log.Printf("DEBUG: Server response - Success: %t, Message: %s", resp.Success, resp.Message)
 
 	if !resp.Success {
 		return fmt.Errorf("server returned error: %s", resp.Message)
