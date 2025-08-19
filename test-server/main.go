@@ -28,13 +28,21 @@ func (s *server) SayHello(ctx context.Context, in *testpb.HelloRequest) (*testpb
 func main() {
 	var port string
 	var message string
+	var bindAll bool
 
 	flag.StringVar(&port, "port", "50051", "Port to listen on")
 	flag.StringVar(&message, "message", "test", "Server message identifier")
+	flag.BoolVar(&bindAll, "bind-all", false, "Bind to 0.0.0.0 instead of 127.0.0.1 (required for Docker)")
 	flag.Parse()
 
+	// Determine bind address
+	bindAddr := "127.0.0.1"
+	if bindAll {
+		bindAddr = "0.0.0.0"
+	}
+
 	// Construct full address
-	addr := "127.0.0.1:" + port
+	addr := bindAddr + ":" + port
 
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {

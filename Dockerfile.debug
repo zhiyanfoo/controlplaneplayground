@@ -1,0 +1,32 @@
+# Debug container with network tools
+FROM ubuntu:22.04
+
+# Install network debugging tools
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    netcat-openbsd \
+    net-tools \
+    iputils-ping \
+    dnsutils \
+    telnet \
+    tcpdump \
+    htop \
+    vim \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install grpcurl
+RUN wget -O grpcurl.tar.gz https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_linux_x86_64.tar.gz \
+    && tar -xzf grpcurl.tar.gz \
+    && mv grpcurl /usr/local/bin/ \
+    && rm grpcurl.tar.gz
+
+# Install host command (from bind9-host)
+RUN apt-get update && apt-get install -y bind9-host && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /debug
+
+# Keep container running (responds to SIGTERM immediately)
+CMD ["sleep", "infinity"]

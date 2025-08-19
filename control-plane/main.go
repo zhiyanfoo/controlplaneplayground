@@ -18,6 +18,10 @@ import (
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	_ "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/file/v3"
+	_ "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
+	_ "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	_ "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
 	clusterservice "github.com/envoyproxy/go-control-plane/envoy/service/cluster/v3"
 	discoveryservice "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	routeservice "github.com/envoyproxy/go-control-plane/envoy/service/route/v3"
@@ -476,7 +480,6 @@ func (m *xdsCallbackManager) OnStreamDeltaRequest(streamID int64, req *discovery
 							m.mu.Lock()
 							m.nodeClusterCache[nodeID] = newClusters
 							m.mu.Unlock()
-							log.Printf("Updated cluster set for node %s: %v", nodeID, newClusters)
 						}
 					}
 				}

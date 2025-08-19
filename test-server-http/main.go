@@ -52,13 +52,21 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 func main() {
 	var port string
 	var message string
+	var bindAll bool
 
 	flag.StringVar(&port, "port", "50052", "Port to listen on")
 	flag.StringVar(&message, "message", "HTTP", "Server message identifier")
+	flag.BoolVar(&bindAll, "bind-all", false, "Bind to 0.0.0.0 instead of 127.0.0.1 (required for Docker)")
 	flag.Parse()
 
+	// Determine bind address
+	bindAddr := "127.0.0.1"
+	if bindAll {
+		bindAddr = "0.0.0.0"
+	}
+
 	// Construct full address
-	addr := "127.0.0.1:" + port
+	addr := bindAddr + ":" + port
 
 	// Create handler functions with message parameter
 	http.HandleFunc("/test/sayhello", func(w http.ResponseWriter, r *http.Request) {
