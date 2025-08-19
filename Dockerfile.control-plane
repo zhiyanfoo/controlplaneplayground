@@ -1,0 +1,33 @@
+# Build stage
+FROM golang:1.24.2 AS builder
+
+WORKDIR /app
+
+# Copy go mod and sum files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the control plane binary
+RUN CGO_ENABLED=0 GOOS=linux go build -o control-plane ./control-plane
+
+# Runtime stage
+FROM ubuntu:22.04
+
+# Update and install ca-certificates
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy binary from builder stage
+COPY --from=builder /app/control-plane .
+
+# Expose ports
+EXPOSE 18000 8734
+
+# Run the control plane
+CMD ["./control-plane"]

@@ -1,0 +1,32 @@
+# Build stage
+FROM golang:1.24.2 AS builder
+
+WORKDIR /app
+
+# Copy go mod and sum files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the test server binaries
+RUN CGO_ENABLED=0 GOOS=linux go build -o test-server ./test-server
+RUN CGO_ENABLED=0 GOOS=linux go build -o test-server-http ./test-server-http
+
+# Runtime stage
+FROM ubuntu:22.04
+
+# Update and install ca-certificates
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy binaries from builder stage
+COPY --from=builder /app/test-server .
+COPY --from=builder /app/test-server-http .
+
+# Default command (can be overridden in docker-compose)
+CMD ["./test-server"]

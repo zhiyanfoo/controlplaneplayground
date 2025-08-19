@@ -1,0 +1,55 @@
+services:
+  control-plane:
+    build:
+      context: .
+      dockerfile: Dockerfile.control-plane
+    container_name: control-plane
+    ports:
+      - "18000:18000"  # gRPC port for CLI management
+      - "8734:8734"    # HTTP port for cache display web interface
+    networks:
+      - envoy-net
+
+  envoy:
+    image: envoyproxy/envoy:v1.34-latest
+    container_name: envoy
+    ports:
+      - "10000:10000"  # Main proxy port
+      - "60001:60001"  # Admin interface
+    volumes:
+      - ./envoy/bootstrap-docker.yaml:/etc/envoy/envoy.yaml:ro
+    networks:
+      - envoy-net
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+
+  test-server-grpc:
+    build:
+      context: .
+      dockerfile: Dockerfile.test-server
+    container_name: test-server-grpc
+    command: ["./test-server", "-port", "50051", "-message", "Docker-gRPC"]
+    networks:
+      - envoy-net
+
+  test-server-http:
+    build:
+      context: .
+      dockerfile: Dockerfile.test-server
+    container_name: test-server-http
+    command: ["./test-server-http", "-port", "50052", "-message", "Docker-HTTP"]
+    networks:
+      - envoy-net
+
+  # Additional test servers for dynamic testing
+  test-server-grpc-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.test-server
+    container_name: test-server-grpc-2
+    command: ["./test-server", "-port", "50053", "-message", "Docker-gRPC-2"]
+    networks:
+      - envoy-net
+
+networks:
+  envoy-net:
+    driver: bridge
