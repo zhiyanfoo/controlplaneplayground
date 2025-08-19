@@ -1,18 +1,103 @@
-# Docker Compose Setup (Recommended)
+# Workshop
 
-Start the complete environment with a single command:
+## Task 1
+
+The first challenge is to setup the environment by running 
 
 ```bash
-docker compose up -d
+docker compose up --detach
+```
+and answering the following questions
+
+1. For the running envoy instance, what is the port of the control-plane the envoy instance is
+connected to?
+2. Did envoy connect to the control-plane before it was ready?
+
+You may find the envoy admin panel helpful in answering these questions.
+- **Envoy Admin Panel**: http://localhost:60001
+
+
+## Task 2
+
+
+Run the following script
+
+```
+scripts/make_request.sh 10000
 ```
 
-This starts all services: control-plane, Envoy proxy, and test servers.
+It should fail because at this point you have no resources.
 
-## Management Access
+To configure envoy via the control-plane run to generate a cli to propagate envoy resources
 
-- **Control Plane Cache**: http://localhost:8734 (view xDS cache)
-- **Envoy Admin Panel**: http://localhost:60001 (proxy stats, config dump)
-- **CLI Management**: Build CLI locally and connect to control-plane
+```
+go build -o bin/cli ./cli
+```
+
+the run
+
+```
+./bin/cli --action update -config workshop-resources/basic-grpc.json
+```
+
+to add some configuration to envoy.
+
+Observe that there are resources in your cache at `http://localhost:8734/`
+
+Run
+
+```
+scripts/make_request.sh 10000
+```
+
+You should get
+
+```
+> scripts/make_request.sh 10000
+
+Sending request via grpcurl to Envoy (localhost:10000)...
+{
+  "message": "Hello Test User from Docker-gRPC server"
+}
+grpcurl request successful!
+```
+
+## Task 3
+
+Now run 
+
+```
+scripts/make_http_request.sh 10001
+```
+
+You should get a 503 error
+```
+> scripts/make_http_request.sh 10001
+Sending HTTP request via curl to Envoy HTTP/1.1 listener (localhost:10001)...
+Note: Unnecessary use of -X or --request, POST is already inferred.
+* Host localhost:10001 was resolved.
+* IPv6: ::1
+* IPv4: 127.0.0.1
+*   Trying [::1]:10001...
+* Connected to localhost (::1) port 10001
+> POST /test/sayhello HTTP/1.1
+> Host: localhost:10001
+> User-Agent: curl/8.7.1
+> Accept: */*
+> Content-Type: application/json
+> Content-Length: 27
+>
+* upload completely sent off: 27 bytes
+< HTTP/1.1 503 Service Unavailable
+< content-length: 167
+< content-type: text/plain
+< date: Tue, 19 Aug 2025 20:55:18 GMT
+< server: envoy
+<
+* The requested URL returned error: 503
+* Closing connection
+curl: (22) The requested URL returned error: 503
+```
 
 ## Making Requests
 
@@ -82,35 +167,3 @@ grpcurl -plaintext -d '{"name": "Debug User"}' test-server-grpc:50051 test.TestS
 # Test via Envoy proxy (requires xDS configuration)  
 grpcurl -plaintext -d '{"name": "Via Envoy"}' envoy:10000 test.TestService/SayHello
 ```
-
----
-
-# Manual Setup (Alternative)
-
-You'll need to run multiple components in seperate shells
-
-The control plane that serves the xds configuration
-```
-./scripts/build_and_run_control_plane.sh
-```
-
-Envoy instance
-```
-scripts/run_envoy.sh
-```
-
-Grpc test server
-```
-./scripts/build_and_run_test_server.sh
-```
-
-The make a grpc request with
-
-```
-./scripts/make_request.sh
-```
-
-The request will be made to Envoy, which should forward it to test-server.
-Envoy should get it's configuration from the control-plane.
-
-

@@ -74,7 +74,7 @@
                   "prefix": "/"
                 },
                 "route": {
-                  "cluster": "xdstp:///envoy.config.cluster.v3.Cluster/basic_http_cluster"
+                  "cluster": "basic_http_cluster"
                 }
               }
             ]
@@ -84,10 +84,10 @@
     },
     {
       "type_url": "type.googleapis.com/envoy.config.cluster.v3.Cluster",
-      "name": "xdstp:///envoy.config.cluster.v3.Cluster/basic_http_cluster",
+      "name": "basic_http_cluster",
       "wildcard_node_update": true,
       "data": {
-        "name": "xdstp:///envoy.config.cluster.v3.Cluster/basic_http_cluster",
+        "name": "basic_http_cluster",
         "connect_timeout": "5s",
         "type": "EDS",
         "eds_cluster_config": {
@@ -110,9 +110,9 @@
     },
     {
       "type_url": "type.googleapis.com/envoy.config.endpoint.v3.ClusterLoadAssignment",
-      "name": "xdstp:///envoy.config.cluster.v3.Cluster/basic_http_cluster",
+      "name": "basic_http_cluster",
       "data": {
-        "cluster_name": "xdstp:///envoy.config.cluster.v3.Cluster/basic_http_cluster",
+        "cluster_name": "basic_http_cluster",
         "endpoints": [
           {
             "lb_endpoints": [
