@@ -20,7 +20,7 @@ First, configure xDS resources using the CLI:
 
 ```bash
 # Build CLI locally
-go build -o cli ./cli
+go build -o bin/cli ./cli
 
 # Add basic gRPC listener and cluster
 ./cli add-listener base-resources/basic-grpc.json

@@ -15,6 +15,9 @@ services:
     container_name: envoy
     ports:
       - "10000:10000"  # Main proxy port
+      - "10001:10001"  # Additional proxy port
+      - "10002:10002"  # Additional proxy port  
+      - "10003:10003"  # Additional proxy port
       - "60001:60001"  # Admin interface
     volumes:
       - ./envoy/bootstrap-docker.yaml:/etc/envoy/envoy.yaml:ro

@@ -29,5 +29,5 @@ COPY --from=builder /app/control-plane .
 # Expose ports
 EXPOSE 18000 8734
 
-# Run the control plane
-CMD ["./control-plane"]
+# Run the control plane with bind-all flag for Docker networking
+CMD ["./control-plane", "-bind-all"]

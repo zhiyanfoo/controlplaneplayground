@@ -4,6 +4,7 @@ import (
 	"context"
 	"controlplaneplayground/pb"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"html/template"
 	"log"
@@ -517,6 +518,17 @@ func (m *xdsCallbackManager) OnFetchResponse(req *discoveryservice.DiscoveryRequ
 // --- Main Function ---
 
 func main() {
+	// Parse command line flags
+	var bindAll bool
+	flag.BoolVar(&bindAll, "bind-all", false, "Bind to 0.0.0.0 instead of 127.0.0.1 (required for Docker)")
+	flag.Parse()
+
+	// Determine bind address
+	bindAddr := "127.0.0.1"
+	if bindAll {
+		bindAddr = "0.0.0.0"
+	}
+
 	// Setup file logger for detailed debug messages
 	debugFile, err := os.OpenFile(debugLogFilename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -569,7 +581,7 @@ func main() {
 	srv := serverv3.NewServer(ctx, muxCache, cb)
 
 	grpcServer := grpc.NewServer()
-	lis, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", gRPCport))
+	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", bindAddr, gRPCport))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -585,7 +597,7 @@ func main() {
 	resourceManagerService := NewResourceManagerService(listenerCache, clusterCache, routeCache, endpointCache, virtualHostCache)
 	pb.RegisterResourceManagerServer(grpcServer, resourceManagerService)
 
-	log.Printf("xDS control plane listening on %d\n", gRPCport)
+	log.Printf("xDS control plane listening on %s:%d\n", bindAddr, gRPCport)
 	go func() {
 		if err = grpcServer.Serve(lis); err != nil {
 			log.Fatal(err)

@@ -6,3 +6,4 @@ cli/cli
 control-plane/control-plane
 scripts/run_envoy.out
 test_services.log
+/bin
