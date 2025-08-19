@@ -99,8 +99,8 @@ services:
     networks:
       envoy-net:
         ipv4_address: 172.20.0.100
-    tty: true
     stdin_open: true
+    stop_grace_period: 0.1s
 
 networks:
   envoy-net:

@@ -27,6 +27,3 @@ RUN apt-get update && apt-get install -y bind9-host && rm -rf /var/lib/apt/lists
 
 # Set working directory
 WORKDIR /debug
-
-# Keep container running (responds to SIGTERM immediately)
-CMD ["sleep", "infinity"]
