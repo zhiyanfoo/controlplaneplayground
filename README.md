@@ -64,13 +64,20 @@ grpcurl request successful!
 
 ## Task 3
 
-Now run 
+Run
+
+```
+./bin/cli --action update -config workshop-resources/basic-http.json
+```
+
+and then run
 
 ```
 scripts/make_http_request.sh 10001
 ```
 
 You should get a 503 error
+
 ```
 > scripts/make_http_request.sh 10001
 Sending HTTP request via curl to Envoy HTTP/1.1 listener (localhost:10001)...
@@ -99,32 +106,19 @@ Note: Unnecessary use of -X or --request, POST is already inferred.
 curl: (22) The requested URL returned error: 503
 ```
 
-## Making Requests
-
-First, configure xDS resources using the CLI:
+The task is modify basic-http.json so that works
 
 ```bash
-# Build CLI locally
-go build -o bin/cli ./cli
-
-# Configure basic gRPC resources
-./bin/cli -config base-resources/basic-grpc.json
+scripts/make_http_request.sh 10001
 ```
 
-Then test via Envoy proxy:
-
-```bash
-# Test gRPC request (port 10000 goes to Envoy)
-./scripts/make_request.sh 10000
-
-# Test HTTP request
-./scripts/make_http_request.sh 10000
+You may find it helpful to exec into the debug container
+or read the docker-compose.yml file to understand how the servers are setup
+```
+docker compose exec debug bash
 ```
 
-The request flow: **Client → Envoy (port 10000) → Backend Services**
-- Envoy gets dynamic configuration from control-plane
-- Control-plane serves xDS config on port 18000
-
+# General Tips and Tricks
 ## Stop Services
 
 ```bash
@@ -164,6 +158,6 @@ curl http://envoy:60001
 # Test gRPC services using server reflection
 grpcurl -plaintext -d '{"name": "Debug User"}' test-server-grpc:50051 test.TestService/SayHello
 
-# Test via Envoy proxy (requires xDS configuration)  
+# Test via Envoy proxy (requires xDS configuration be applied)
 grpcurl -plaintext -d '{"name": "Via Envoy"}' envoy:10000 test.TestService/SayHello
 ```
