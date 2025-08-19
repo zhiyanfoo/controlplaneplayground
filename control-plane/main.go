@@ -31,7 +31,7 @@ import (
 const (
 	debugLogFilename = "xds_debug.log"
 	gRPCport         = 18000
-	HTTPport         = 8080 // HTTP server for cache display
+	HTTPport         = 8734 // HTTP server for cache display
 
 	// Resource Type URLs
 	ListenerType    = resourcev3.ListenerType
@@ -568,10 +568,7 @@ func main() {
 	// Server for ADS and VHDS
 	srv := serverv3.NewServer(ctx, muxCache, cb)
 
-	// --- Start gRPC Server ---
-	// Remove or keep gRPC interceptor based on needs. For now, removing it as we have xDS layer logging.
 	grpcServer := grpc.NewServer()
-	// Listen on loopback only
 	lis, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", gRPCport))
 	if err != nil {
 		log.Fatal(err)
@@ -588,7 +585,7 @@ func main() {
 	resourceManagerService := NewResourceManagerService(listenerCache, clusterCache, routeCache, endpointCache, virtualHostCache)
 	pb.RegisterResourceManagerServer(grpcServer, resourceManagerService)
 
-	log.Printf("xDS control plane: ADS, VHDS (Delta GRPC), and ResourceManager services listening on %d\n", gRPCport)
+	log.Printf("xDS control plane listening on %d\n", gRPCport)
 	go func() {
 		if err = grpcServer.Serve(lis); err != nil {
 			log.Fatal(err)
