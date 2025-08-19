@@ -11,19 +11,12 @@ import (
 	"net/http"
 	"os"
 	"sync"
-	"time"
 
-	accesslog "github.com/envoyproxy/go-control-plane/envoy/config/accesslog/v3"
 	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
-	file_accesslog "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/file/v3"
-	ondemand "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/on_demand/v3"
-	router "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
-	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
-	upstreamhttp "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
 	clusterservice "github.com/envoyproxy/go-control-plane/envoy/service/cluster/v3"
 	discoveryservice "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	routeservice "github.com/envoyproxy/go-control-plane/envoy/service/route/v3"
@@ -33,39 +26,12 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/anypb"
-	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 const (
 	debugLogFilename = "xds_debug.log"
 	gRPCport         = 18000
 	HTTPport         = 8080 // HTTP server for cache display
-	XDSHost          = "localhost"
-	upstreamPort     = 50051 // Port of the test gRPC server
-	listenerName     = "listener_0"
-	listenerPort     = 10000
-	routeName        = "local_route"
-	clusterName      = "xdstp:///envoy.config.cluster.v3.Cluster/test_cluster"
-	upstreamHost     = "127.0.0.1"
-	nodeID           = "test-id" // Node ID served by this control plane
-
-	// HTTP/1.1 specific constants
-	http1ListenerName = "http1_listener_0"
-	http1ListenerPort = 10001
-	http1RouteName    = "http1_route"
-	http1ClusterName  = "xdstp:///envoy.config.cluster.v3.Cluster/http1_test_cluster"
-	http1UpstreamPort = 50052 // HTTP server port
-
-	// Dynamic vhost specific constants
-	dynamicRouteName    = "dynamic_route"
-	dynamicListenerPort = 10002
-	dynamicAuthority    = "localhost:10002"
-
-	// Access log format constants
-	HTTP1AccessLogFormat = "[%START_TIME%] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %BYTES_SENT% %DURATION% %UPSTREAM_HOST% %UPSTREAM_CLUSTER%\n"
-	HTTP2AccessLogFormat = "[%START_TIME%] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %GRPC_STATUS%(%GRPC_STATUS_NUMBER%) %BYTES_SENT% %DURATION% CTD %CONNECTION_TERMINATION_DETAILS% URAC %UPSTREAM_REQUEST_ATTEMPT_COUNT% DWBS %DOWNSTREAM_WIRE_BYTES_SENT% USWBR %UPSTREAM_WIRE_BYTES_RECEIVED% UTFR %UPSTREAM_TRANSPORT_FAILURE_REASON% UH %UPSTREAM_HOST% UC %UPSTREAM_CLUSTER% GRPC_MSG %RESP(grpc-message)%\n"
 
 	// Resource Type URLs
 	ListenerType    = resourcev3.ListenerType
@@ -73,8 +39,6 @@ const (
 	ClusterType     = resourcev3.ClusterType
 	EndpointType    = resourcev3.EndpointType
 	VirtualHostType = resourcev3.VirtualHostType
-	APITypePrefix   = "type.googleapis.com/envoy.config."
-	fabricAuthority = ""
 )
 
 // --- Resource Generation Functions ---
@@ -86,246 +50,6 @@ type ListenerConfig struct {
 	StatPrefix      string
 	Port            uint32
 	AccessLogFormat string
-}
-
-func makeCluster(clusterName string) *cluster.Cluster {
-	return &cluster.Cluster{
-		Name:                 clusterName,
-		ConnectTimeout:       durationpb.New(5 * time.Second),
-		ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_EDS},
-		EdsClusterConfig: &cluster.Cluster_EdsClusterConfig{
-			EdsConfig: makeADSConfigSource(),
-		},
-		LbPolicy: cluster.Cluster_ROUND_ROBIN,
-		TypedExtensionProtocolOptions: map[string]*anypb.Any{
-			"envoy.extensions.upstreams.http.v3.HttpProtocolOptions": MustAny(&upstreamhttp.HttpProtocolOptions{
-				UpstreamProtocolOptions: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig_{
-					ExplicitHttpConfig: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig{
-						ProtocolConfig: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig_Http2ProtocolOptions{
-							Http2ProtocolOptions: &core.Http2ProtocolOptions{},
-						},
-					},
-				},
-			}),
-		},
-	}
-}
-
-func makeHttp1Cluster(clusterName string) *cluster.Cluster {
-	return &cluster.Cluster{
-		Name:                 clusterName,
-		ConnectTimeout:       durationpb.New(5 * time.Second),
-		ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_EDS},
-		EdsClusterConfig: &cluster.Cluster_EdsClusterConfig{
-			EdsConfig: makeADSConfigSource(),
-		},
-		LbPolicy: cluster.Cluster_ROUND_ROBIN,
-		TypedExtensionProtocolOptions: map[string]*anypb.Any{
-			"envoy.extensions.upstreams.http.v3.HttpProtocolOptions": MustAny(&upstreamhttp.HttpProtocolOptions{
-				UpstreamProtocolOptions: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig_{
-					ExplicitHttpConfig: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig{
-						ProtocolConfig: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig_HttpProtocolOptions{
-							HttpProtocolOptions: &core.Http1ProtocolOptions{},
-						},
-					},
-				},
-			}),
-		},
-	}
-}
-
-func makeVirtualHost(virtualHostName string, domains []string, clusterName string) *route.VirtualHost {
-	return &route.VirtualHost{
-		Name:    virtualHostName,
-		Domains: domains,
-		Routes: []*route.Route{{
-			Match: &route.RouteMatch{
-				PathSpecifier: &route.RouteMatch_Prefix{Prefix: "/"},
-			},
-			Action: &route.Route_Route{
-				Route: &route.RouteAction{
-					ClusterSpecifier: &route.RouteAction_Cluster{Cluster: clusterName},
-				},
-			},
-		}},
-		TypedPerFilterConfig: map[string]*anypb.Any{
-			"envoy.filters.http.on_demand": MustAny(&ondemand.PerRouteConfig{
-				Odcds: &ondemand.OnDemandCds{
-					Source:  makeADSConfigSource(),
-					Timeout: durationpb.New(1 * time.Second),
-				},
-			}),
-		},
-	}
-}
-
-func makeEndpoint(clusterName string, upstreamHost string, upstreamPort uint32) *endpoint.ClusterLoadAssignment {
-	return &endpoint.ClusterLoadAssignment{
-		ClusterName: clusterName,
-		Endpoints: []*endpoint.LocalityLbEndpoints{{
-			LbEndpoints: []*endpoint.LbEndpoint{{
-				HostIdentifier: &endpoint.LbEndpoint_Endpoint{
-					Endpoint: &endpoint.Endpoint{
-						Address: &core.Address{
-							Address: &core.Address_SocketAddress{
-								SocketAddress: &core.SocketAddress{
-									Protocol:      core.SocketAddress_TCP,
-									Address:       upstreamHost,
-									PortSpecifier: &core.SocketAddress_PortValue{PortValue: upstreamPort},
-								},
-							},
-						},
-					},
-				},
-			}},
-		}},
-	}
-}
-
-func makeRoute(routeName string) *route.RouteConfiguration {
-	return &route.RouteConfiguration{
-		Name: routeName,
-		Vhds: &route.Vhds{
-			ConfigSource: makeVhdsConfigSource(),
-		},
-	}
-}
-
-func makeOdcdsConfig() (*anypb.Any, error) {
-	return anypb.New(&ondemand.OnDemand{
-		Odcds:  &ondemand.OnDemandCds{
-			Source: &core.ConfigSource{
-				ConfigSourceSpecifier: &core.ConfigSource_Ads{
-					Ads: &core.AggregatedConfigSource{},
-				},
-				ResourceApiVersion: core.ApiVersion_V3,
-			},
-			Timeout: durationpb.New(time.Second),
-		},
-	})
-}
-
-func makeHTTPListener(config ListenerConfig) *listener.Listener {
-	routerConfig, err := anypb.New(&router.Router{})
-	if err != nil {
-		panic(err)
-	}
-
-
-	odcdsConfig, err :=  makeOdcdsConfig()
-	if err != nil {
-		panic(err)
-	}
-
-	// HTTP filter configuration
-	manager := &hcm.HttpConnectionManager{
-		CodecType:  hcm.HttpConnectionManager_AUTO,
-		StatPrefix: config.StatPrefix,
-		RouteSpecifier: &hcm.HttpConnectionManager_Rds{
-			Rds: &hcm.Rds{
-				ConfigSource:    makeADSConfigSource(),
-				RouteConfigName: config.RouteConfigName,
-			},
-		},
-		HttpFilters: []*hcm.HttpFilter{
-			{
-				Name:       "envoy.filters.http.on_demand",
-				ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: odcdsConfig},
-			},
-			{
-				Name:       "http-router",
-				ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: routerConfig},
-			},
-		},
-		AccessLog: []*accesslog.AccessLog{
-			{
-				Name: "envoy.access_loggers.file",
-				ConfigType: &accesslog.AccessLog_TypedConfig{
-					TypedConfig: MustAny(&file_accesslog.FileAccessLog{
-						Path: "/dev/stdout",
-						AccessLogFormat: &file_accesslog.FileAccessLog_LogFormat{
-							LogFormat: &core.SubstitutionFormatString{
-								Format: &core.SubstitutionFormatString_TextFormatSource{
-									TextFormatSource: &core.DataSource{
-										Specifier: &core.DataSource_InlineString{
-											InlineString: config.AccessLogFormat,
-										},
-									},
-								},
-							},
-						},
-					}),
-				},
-			},
-		},
-	}
-	pbst, err := anypb.New(manager)
-	if err != nil {
-		panic(err)
-	}
-
-	return &listener.Listener{
-		Name: config.Name,
-		Address: &core.Address{
-			Address: &core.Address_SocketAddress{
-				SocketAddress: &core.SocketAddress{
-					Protocol: core.SocketAddress_TCP,
-					Address:  "0.0.0.0",
-					PortSpecifier: &core.SocketAddress_PortValue{
-						PortValue: config.Port,
-					},
-				},
-			},
-		},
-		FilterChains: []*listener.FilterChain{{
-			Filters: []*listener.Filter{{
-				Name: "http-connection-manager",
-				ConfigType: &listener.Filter_TypedConfig{
-					TypedConfig: pbst,
-				},
-			}},
-		}},
-	}
-}
-
-// Reverted makeADSConfigSource to its original simpler form
-func makeADSConfigSource() *core.ConfigSource {
-	return &core.ConfigSource{
-		ResourceApiVersion: resourcev3.DefaultAPIVersion,
-		ConfigSourceSpecifier: &core.ConfigSource_Ads{
-			Ads: &core.AggregatedConfigSource{},
-		},
-		InitialFetchTimeout: durationpb.New(1 * time.Second),
-	}
-}
-
-// New function for VHDS ConfigSource using Delta GRPC (non-ADS)
-func makeVhdsConfigSource() *core.ConfigSource {
-	return &core.ConfigSource{
-		ResourceApiVersion: resourcev3.DefaultAPIVersion,
-		ConfigSourceSpecifier: &core.ConfigSource_ApiConfigSource{
-			ApiConfigSource: &core.ApiConfigSource{
-				ApiType:             core.ApiConfigSource_DELTA_GRPC,
-				TransportApiVersion: resourcev3.DefaultAPIVersion,
-				GrpcServices: []*core.GrpcService{{
-					TargetSpecifier: &core.GrpcService_EnvoyGrpc_{
-						EnvoyGrpc: &core.GrpcService_EnvoyGrpc{ClusterName: "xds_cluster"}, // Using the defined clusterName constant
-					},
-				}},
-				// SetInitialFetchTimeout: durationpb.New(1 * time.Second), // Optional: can be added if needed
-			},
-		},
-		InitialFetchTimeout: durationpb.New(time.Second),
-	}
-}
-
-// MustAny converts a proto message to Any
-func MustAny(p proto.Message) *anypb.Any {
-	anypb, err := anypb.New(p)
-	if err != nil {
-		log.Fatalf("Failed to convert proto message to Any: %v", err)
-	}
-	return anypb
 }
 
 // CacheDisplayHandler handles HTTP requests to display cache contents
