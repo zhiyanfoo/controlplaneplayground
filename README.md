@@ -22,9 +22,8 @@ First, configure xDS resources using the CLI:
 # Build CLI locally
 go build -o bin/cli ./cli
 
-# Add basic gRPC listener and cluster
-./cli add-listener base-resources/basic-grpc.json
-./cli add-cluster base-resources/basic-grpc.json
+# Configure basic gRPC resources
+./bin/cli -config base-resources/basic-grpc.json
 ```
 
 Then test via Envoy proxy:
