@@ -82,14 +82,6 @@ grpcurl -plaintext -d '{"name": "Debug User"}' test-server-grpc:50051 test.TestS
 
 # Test via Envoy proxy (requires xDS configuration)  
 grpcurl -plaintext -d '{"name": "Via Envoy"}' envoy:10000 test.TestService/SayHello
-
-# Check DNS resolution
-host control-plane
-nslookup test-server-grpc
-
-# Network diagnostics
-netstat -tuln
-ss -tuln
 ```
 
 ---
