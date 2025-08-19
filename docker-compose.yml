@@ -58,6 +58,38 @@ services:
       envoy-net:
         ipv4_address: 172.20.0.32
 
+  # Additional test servers for outlier detection testing
+  test-server-grpc-3:
+    build:
+      context: .
+      dockerfile: Dockerfile.test-server
+    container_name: test-server-grpc-3
+    command: ["./test-server", "-port", "50054", "-message", "Docker-gRPC-3", "-bind-all"]
+    networks:
+      envoy-net:
+        ipv4_address: 172.20.0.33
+
+  test-server-grpc-4:
+    build:
+      context: .
+      dockerfile: Dockerfile.test-server
+    container_name: test-server-grpc-4
+    command: ["./test-server", "-port", "50055", "-message", "Docker-gRPC-4", "-bind-all"]
+    networks:
+      envoy-net:
+        ipv4_address: 172.20.0.34
+
+  # This server always returns 500 errors for outlier detection testing
+  test-server-grpc-failing:
+    build:
+      context: .
+      dockerfile: Dockerfile.test-server
+    container_name: test-server-grpc-failing
+    command: ["./test-server", "-port", "50056", "-message", "Docker-gRPC-Failing", "-bind-all", "-always-fail"]
+    networks:
+      envoy-net:
+        ipv4_address: 172.20.0.35
+
   # Debug container with network tools
   debug:
     build:

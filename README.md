@@ -118,6 +118,25 @@ or read the docker-compose.yml file to understand how the servers are setup
 docker compose exec debug bash
 ```
 
+## Task 4
+
+```
+./bin/cli --action update -config workshop-resources/health-check.json
+```
+
+Build and run the pinger locally:
+```
+go build -o bin/pinger ./pinger
+./bin/pinger
+```
+
+Notice that 20% of the time pinger fails. Envoy has outlier detection by default
+
+There are 4 additional grpc services being run. 1 of them always returns a 500, why is outlier
+detection currently not working, and excluding the instance?
+
+
+
 # General Tips and Tricks
 ## Stop Services
 
