@@ -34,7 +34,6 @@ func (s *server) SayHello(ctx context.Context, in *testpb.HelloRequest) (*testpb
 }
 
 func main() {
-	fmt.Printf("hello world 2\n")
 	var port string
 	var message string
 	var bindAll bool

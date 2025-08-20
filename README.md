@@ -11,7 +11,7 @@ and answering the following questions
 
 1. For the running envoy instance, what is the port of the control-plane the envoy instance is
 connected to?
-2. Did envoy connect to the control-plane before it was ready?
+2. Did envoy connect to the control-plane before then control-plane was ready?
 
 You may find the envoy admin panel helpful in answering these questions.
 - **Envoy Admin Panel**: http://localhost:60001
@@ -28,7 +28,7 @@ scripts/make_request.sh 10000
 
 It should fail because at this point you have no resources.
 
-To configure envoy via the control-plane run to generate a cli to propagate envoy resources
+To configure envoy via the control-plane, we will use a cli
 
 ```
 go build -o bin/cli ./cli
@@ -135,6 +135,7 @@ Notice that 20% of the time pinger fails. Envoy has outlier detection by default
 There are 4 additional grpc services being run. 1 of them always returns a 500, why is outlier
 detection currently not working, and excluding the instance?
 
+Can you fix it so outlier detection works again?
 
 
 # General Tips and Tricks
