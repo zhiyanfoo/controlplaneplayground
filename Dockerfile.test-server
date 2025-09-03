@@ -12,9 +12,8 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the test server binaries
+# Build the unified test server
 RUN CGO_ENABLED=0 GOOS=linux go build -o test-server ./test-server
-RUN CGO_ENABLED=0 GOOS=linux go build -o test-server-http ./test-server-http
 
 # Runtime stage
 FROM ubuntu:22.04
@@ -24,9 +23,12 @@ RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/
 
 WORKDIR /app
 
-# Copy binaries from builder stage
+# Copy binary and configs from builder stage
 COPY --from=builder /app/test-server .
-COPY --from=builder /app/test-server-http .
+COPY --from=builder /app/test-server/config*.json .
 
-# Default command (can be overridden in docker-compose)
-CMD ["./test-server"]
+# Expose all ports used by the unified server
+EXPOSE 50051 50052 50053 50054
+
+# Default command uses the config file
+CMD ["./test-server", "-config", "config.json"]

@@ -1,0 +1,32 @@
+{
+  "servers": [
+    {
+      "name": "Main Test Server",
+      "protocol": "grpc",
+      "host": "0.0.0.0",
+      "port": 50051,
+      "message": "Docker-Main"
+    },
+    {
+      "name": "Dynamic Test Server 1", 
+      "protocol": "grpc",
+      "host": "0.0.0.0",
+      "port": 50053,
+      "message": "Docker-Dynamic1"
+    },
+    {
+      "name": "Dynamic Test Server 2",
+      "protocol": "grpc", 
+      "host": "0.0.0.0",
+      "port": 50054,
+      "message": "Docker-Dynamic2"
+    },
+    {
+      "name": "HTTP Test Server",
+      "protocol": "http",
+      "host": "0.0.0.0", 
+      "port": 50052,
+      "message": "Docker-HTTP"
+    }
+  ]
+}

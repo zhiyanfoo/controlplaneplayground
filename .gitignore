@@ -1,5 +1,5 @@
 control-plane/cp
-test-server/server
+test-server/test-server
 control-plane/xds_debug.log
 
 cli/cli
@@ -7,3 +7,5 @@ control-plane/control-plane
 scripts/run_envoy.out
 test_services.log
 /bin
+
+
