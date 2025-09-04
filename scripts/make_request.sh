@@ -20,15 +20,11 @@ fi
 
 echo "Sending request via grpcurl to Envoy (localhost:$PORT)..."
 
-# grpcurl -plaintext \
-#     -d '{"name": "Playground User"}' \
-#     -authority "localhost:$PORT" \
-#     localhost:$PORT test.TestService/SayHello
-
 grpcurl -plaintext \
   -import-path "$WORKSPACE_ROOT/testpb" \
   -proto "$WORKSPACE_ROOT/testpb/test.proto" \
   -d '{"name": "Test User"}' \
+  -connect-timeout 0.2 \
   "localhost:$PORT" test.TestService/SayHello
 
 if [ $? -eq 0 ]; then
@@ -36,4 +32,4 @@ if [ $? -eq 0 ]; then
 else
     echo "grpcurl request failed."
     exit 1 # Exit with error if grpcurl failed
-fi 
+fi

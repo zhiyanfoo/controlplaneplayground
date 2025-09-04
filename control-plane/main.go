@@ -19,6 +19,7 @@ import (
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	_ "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/file/v3"
+	_ "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/on_demand/v3"
 	_ "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
 	_ "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	_ "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
