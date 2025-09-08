@@ -516,6 +516,14 @@ func (m *xdsCallbackManager) UpdateGlobalCluster(name string, cluster *cluster.C
 	log.Printf("Updated global cluster store with cluster: %s", name)
 }
 
+// DeleteGlobalCluster removes a cluster from the global store
+func (m *xdsCallbackManager) DeleteGlobalCluster(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.globalClusterStore, name)
+	log.Printf("Deleted cluster from global cluster store: %s", name)
+}
+
 // --- Helper Functions ---
 
 // generateSnapshotVersion creates a time-based version string
