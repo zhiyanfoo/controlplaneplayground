@@ -1,0 +1,10 @@
+# Test Scenarios
+
+Each of these tests are independent
+
+1. Basic
+1. Change referenced cluster
+1. Change in cluster definition (Change the loadbalancing policy)
+1. Change in listener definition (Change the port the it listens on)
+1. Test deleting the referenced cluster (after a successful request is made)
+1. Test deleting the referenced virtual host (after a successful request is made)
