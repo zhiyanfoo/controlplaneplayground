@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"time"
 
 	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -26,12 +27,14 @@ import (
 	clusterservice "github.com/envoyproxy/go-control-plane/envoy/service/cluster/v3"
 	discoveryservice "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	routeservice "github.com/envoyproxy/go-control-plane/envoy/service/route/v3"
+	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	xdscache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	resourcev3 "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	serverv3 "github.com/envoyproxy/go-control-plane/pkg/server/v3"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -61,14 +64,14 @@ type ListenerConfig struct {
 // CacheDisplayHandler handles HTTP requests to display cache contents
 type CacheDisplayHandler struct {
 	listenerCache    *xdscache.LinearCache
-	clusterCache     *xdscache.LinearCache
+	clusterCache     xdscache.SnapshotCache
 	routeCache       *xdscache.LinearCache
 	endpointCache    *xdscache.LinearCache
 	virtualHostCache *xdscache.LinearCache
 }
 
 // NewCacheDisplayHandler creates a new cache display handler
-func NewCacheDisplayHandler(listenerCache, clusterCache, routeCache, endpointCache, virtualHostCache *xdscache.LinearCache) *CacheDisplayHandler {
+func NewCacheDisplayHandler(listenerCache *xdscache.LinearCache, clusterCache xdscache.SnapshotCache, routeCache, endpointCache, virtualHostCache *xdscache.LinearCache) *CacheDisplayHandler {
 	return &CacheDisplayHandler{
 		listenerCache:    listenerCache,
 		clusterCache:     clusterCache,
@@ -221,10 +224,20 @@ func (h *CacheDisplayHandler) getCacheState() CacheState {
 
 	// Get resources from all caches
 	listenerResources := h.listenerCache.GetResources()
-	clusterResources := h.clusterCache.GetResources()
 	routeResources := h.routeCache.GetResources()
 	endpointResources := h.endpointCache.GetResources()
 	vhostResources := h.virtualHostCache.GetResources()
+
+	// Get clusters from all node snapshots
+	clusterResources := make(map[string]proto.Message)
+	for _, nodeID := range h.clusterCache.GetStatusKeys() {
+		if snapshot, err := h.clusterCache.GetSnapshot(nodeID); err == nil {
+			clusters := snapshot.GetResources(resourcev3.ClusterType)
+			for name, resource := range clusters {
+				clusterResources[name] = resource
+			}
+		}
+	}
 
 	// Process listeners
 	for name, resource := range listenerResources {
@@ -394,10 +407,10 @@ func (l *requestResponseLogger) OnFetchResponse(req *discoveryservice.DiscoveryR
 // xdsCallbackManager implements serverv3.Callbacks and manages xDS callbacks with access to caches
 type xdsCallbackManager struct {
 	*requestResponseLogger
-	virtualHostCache *xdscache.LinearCache
-	clusterCache     *xdscache.LinearCache
-	nodeClusterCache map[string]map[string]struct{} // Maps nodeID to set of clusters
-	mu               sync.RWMutex                   // Protects nodeClusterCache
+	virtualHostCache   *xdscache.LinearCache
+	clusterCache       xdscache.SnapshotCache
+	globalClusterStore map[string]*cluster.Cluster // Maps cluster name to cluster resource
+	mu                 sync.RWMutex                // Protects globalClusterStore
 }
 
 // ClusterList holds the list of clusters for a node
@@ -406,12 +419,12 @@ type ClusterList struct {
 }
 
 // NewXdsCallbackManager creates a new xdsCallbackManager instance
-func NewXdsCallbackManager(logger *requestResponseLogger, vhCache, clCache *xdscache.LinearCache) *xdsCallbackManager {
+func NewXdsCallbackManager(logger *requestResponseLogger, vhCache *xdscache.LinearCache, clCache xdscache.SnapshotCache) *xdsCallbackManager {
 	return &xdsCallbackManager{
 		requestResponseLogger: logger,
 		virtualHostCache:      vhCache,
 		clusterCache:          clCache,
-		nodeClusterCache:      make(map[string]map[string]struct{}),
+		globalClusterStore:    make(map[string]*cluster.Cluster),
 	}
 }
 
@@ -445,63 +458,39 @@ func (m *xdsCallbackManager) OnDeltaStreamClosed(id int64, node *core.Node) {
 	m.requestResponseLogger.OnDeltaStreamClosed(id, node)
 }
 
-// OnStreamDeltaRequest logs incoming DeltaDiscoveryRequests and processes node metadata
+// OnStreamDeltaRequest logs incoming DeltaDiscoveryRequests and processes cluster requests
 func (m *xdsCallbackManager) OnStreamDeltaRequest(streamID int64, req *discoveryservice.DeltaDiscoveryRequest) error {
 	// First call the logger's method
 	if err := m.requestResponseLogger.OnStreamDeltaRequest(streamID, req); err != nil {
 		return err
 	}
 
-	// Process node metadata if present
-	if req.GetNode() != nil {
+	// Handle cluster requests specifically
+	if req.GetTypeUrl() == resourcev3.ClusterType && req.GetNode() != nil {
 		nodeID := req.GetNode().GetId()
-		if metadata := req.GetNode().GetMetadata(); metadata != nil {
-			if initialClusters := metadata.GetFields()["initial_clusters"]; initialClusters != nil {
-				if clusters := initialClusters.GetStructValue().GetFields()["clusters"]; clusters != nil {
-					clusterList := clusters.GetListValue().GetValues()
-					newClusters := make(map[string]struct{}, len(clusterList))
+		requestedClusters := req.GetResourceNamesSubscribe()
 
-					for _, cluster := range clusterList {
-						newClusters[cluster.GetStringValue()] = struct{}{}
-					}
+		// Check if this is NOT a wildcard-only request
+		if !isWildcardOnlyRequest(requestedClusters) {
+			// Extract specific cluster names (ignore any "*" entries)
+			specificClusters := extractSpecificClusters(requestedClusters)
 
-					// Check if the cluster set has changed
-					m.mu.RLock()
-					existingClusters, exists := m.nodeClusterCache[nodeID]
-					m.mu.RUnlock()
+			if len(specificClusters) > 0 {
+				// This is an on-demand request - update node's snapshot
+				m.mu.Lock()
+				err := createOrUpdateNodeSnapshot(nodeID, specificClusters, m.clusterCache, m.globalClusterStore)
+				m.mu.Unlock()
 
-					if !exists || !mapsEqual(existingClusters, newClusters) {
-						// Update the LinearCache only if the set has changed
-						// This won't trigger unnecessary rebuilds because the node that made the request
-						// has not set
-						if err := m.clusterCache.UpdateWilcardResourcesForNode(nodeID, newClusters); err != nil {
-							log.Printf("Error updating clusters for node %s: %v", nodeID, err)
-						} else {
-							// Update our cache with the new set
-							m.mu.Lock()
-							m.nodeClusterCache[nodeID] = newClusters
-							m.mu.Unlock()
-						}
-					}
+				if err != nil {
+					log.Printf("Error creating snapshot for node %s: %v", nodeID, err)
+				} else {
+					log.Printf("Created snapshot for node %s with clusters: %v", nodeID, specificClusters)
 				}
 			}
 		}
 	}
 
 	return nil
-}
-
-// mapsEqual compares two maps for equality
-func mapsEqual(a, b map[string]struct{}) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k := range a {
-		if _, ok := b[k]; !ok {
-			return false
-		}
-	}
-	return true
 }
 
 // OnStreamDeltaResponse logs outgoing DeltaDiscoveryResponses.
@@ -517,6 +506,72 @@ func (m *xdsCallbackManager) OnFetchRequest(ctx context.Context, req *discoverys
 // OnFetchResponse logs outgoing Fetch DiscoveryResponses.
 func (m *xdsCallbackManager) OnFetchResponse(req *discoveryservice.DiscoveryRequest, resp *discoveryservice.DiscoveryResponse) {
 	m.requestResponseLogger.OnFetchResponse(req, resp)
+}
+
+// UpdateGlobalCluster adds or updates a cluster in the global store
+func (m *xdsCallbackManager) UpdateGlobalCluster(name string, cluster *cluster.Cluster) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.globalClusterStore[name] = cluster
+	log.Printf("Updated global cluster store with cluster: %s", name)
+}
+
+// --- Helper Functions ---
+
+// generateSnapshotVersion creates a time-based version string
+func generateSnapshotVersion() string {
+	return fmt.Sprintf("%d", time.Now().UnixNano())
+}
+
+// isWildcardOnlyRequest checks if the request is for wildcard resources only
+func isWildcardOnlyRequest(resourceNames []string) bool {
+	// Empty request or single "*" = wildcard only
+	if len(resourceNames) == 0 {
+		return true
+	}
+	if len(resourceNames) == 1 && resourceNames[0] == "*" {
+		return true
+	}
+	return false
+}
+
+// extractSpecificClusters returns cluster names, filtering out wildcards
+func extractSpecificClusters(resourceNames []string) []string {
+	var specificClusters []string
+	for _, name := range resourceNames {
+		if name != "*" {
+			specificClusters = append(specificClusters, name)
+		}
+	}
+	return specificClusters
+}
+
+// createOrUpdateNodeSnapshot creates or updates a snapshot for a specific node
+func createOrUpdateNodeSnapshot(nodeID string, requestedClusters []string, snapshotCache xdscache.SnapshotCache, globalStore map[string]*cluster.Cluster) error {
+	// Collect requested clusters that exist in global store
+	var clusters []types.Resource
+	for _, clusterName := range requestedClusters {
+		if cluster, exists := globalStore[clusterName]; exists {
+			clusters = append(clusters, cluster)
+		}
+	}
+
+	if len(clusters) == 0 {
+		return nil // No valid clusters to add
+	}
+
+	// Create new snapshot
+	version := generateSnapshotVersion()
+	resources := map[resourcev3.Type][]types.Resource{
+		resourcev3.ClusterType: clusters,
+	}
+
+	snapshot, err := xdscache.NewSnapshot(version, resources)
+	if err != nil {
+		return fmt.Errorf("failed to create snapshot: %v", err)
+	}
+
+	return snapshotCache.SetSnapshot(context.Background(), nodeID, snapshot)
 }
 
 // --- Main Function ---
@@ -549,7 +604,7 @@ func main() {
 
 	// --- Initialize Caches ---
 	listenerCache := xdscache.NewLinearCache(ListenerType, xdscache.WithCustomWildCardMode(false))
-	clusterCache := xdscache.NewLinearCache(ClusterType, xdscache.WithCustomWildCardMode(true))
+	clusterCache := xdscache.NewSnapshotCache(false, xdscache.IDHash{}, nil)
 	routeCache := xdscache.NewLinearCache(RouteType, xdscache.WithCustomWildCardMode(false))
 	endpointCache := xdscache.NewLinearCache(EndpointType, xdscache.WithCustomWildCardMode(false))
 	virtualHostCache := xdscache.NewLinearCache(VirtualHostType, xdscache.WithCustomWildCardMode(true))
@@ -598,7 +653,7 @@ func main() {
 	clusterservice.RegisterClusterDiscoveryServiceServer(grpcServer, srv)
 
 	// Register ResourceManager service for CLI operations
-	resourceManagerService := NewResourceManagerService(listenerCache, clusterCache, routeCache, endpointCache, virtualHostCache)
+	resourceManagerService := NewResourceManagerService(listenerCache, clusterCache, routeCache, endpointCache, virtualHostCache, cb)
 	pb.RegisterResourceManagerServer(grpcServer, resourceManagerService)
 
 	log.Printf("xDS control plane listening on %s:%d\n", bindAddr, gRPCport)
@@ -611,7 +666,7 @@ func main() {
 	// --- Start HTTP Server for Cache Display ---
 	cacheHandler := NewCacheDisplayHandler(listenerCache, clusterCache, routeCache, endpointCache, virtualHostCache)
 	http.Handle("/", cacheHandler)
-	
+
 	log.Printf("HTTP cache display server listening on http://localhost:%d\n", HTTPport)
 	go func() {
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", HTTPport), nil); err != nil {

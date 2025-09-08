@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 
 	"controlplaneplayground/pb"
 
@@ -22,21 +23,26 @@ import (
 // ResourceManagerService implements the ResourceManager gRPC service
 type ResourceManagerService struct {
 	pb.UnimplementedResourceManagerServer
-	listenerCache    *xdscache.LinearCache
-	clusterCache     *xdscache.LinearCache
-	routeCache       *xdscache.LinearCache
-	endpointCache    *xdscache.LinearCache
-	virtualHostCache *xdscache.LinearCache
+	listenerCache      *xdscache.LinearCache
+	clusterCache       xdscache.SnapshotCache
+	routeCache         *xdscache.LinearCache
+	endpointCache      *xdscache.LinearCache
+	virtualHostCache   *xdscache.LinearCache
+	globalClusterStore map[string]*cluster.Cluster
+	callbackManager    *xdsCallbackManager // Reference to update global store
+	mu                 sync.RWMutex
 }
 
 // NewResourceManagerService creates a new ResourceManagerService instance
-func NewResourceManagerService(listenerCache, clusterCache, routeCache, endpointCache, virtualHostCache *xdscache.LinearCache) *ResourceManagerService {
+func NewResourceManagerService(listenerCache *xdscache.LinearCache, clusterCache xdscache.SnapshotCache, routeCache, endpointCache, virtualHostCache *xdscache.LinearCache, callbackManager *xdsCallbackManager) *ResourceManagerService {
 	return &ResourceManagerService{
-		listenerCache:    listenerCache,
-		clusterCache:     clusterCache,
-		routeCache:       routeCache,
-		endpointCache:    endpointCache,
-		virtualHostCache: virtualHostCache,
+		listenerCache:      listenerCache,
+		clusterCache:       clusterCache,
+		routeCache:         routeCache,
+		endpointCache:      endpointCache,
+		virtualHostCache:   virtualHostCache,
+		globalClusterStore: make(map[string]*cluster.Cluster),
+		callbackManager:    callbackManager,
 	}
 }
 
@@ -48,27 +54,49 @@ func (s *ResourceManagerService) UpdateResource(ctx context.Context, req *pb.Upd
 		dataStr = dataStr[:200] + "..."
 	}
 
-	// Determine which cache to use based on TypeURL
-	var targetCache *xdscache.LinearCache
+	// Handle different resource types
 	var resource proto.Message
 	var err error
 
 	switch req.TypeUrl {
 	case resourcev3.ListenerType:
-		targetCache = s.listenerCache
 		resource, err = s.deserializeListener(req.Data)
+		if err == nil {
+			err = s.listenerCache.UpdateResource(req.Name, resource)
+		}
 	case resourcev3.ClusterType:
-		targetCache = s.clusterCache
-		resource, err = s.deserializeCluster(req.Data)
+		clusterResource, deserErr := s.deserializeCluster(req.Data)
+		if deserErr != nil {
+			err = deserErr
+		} else {
+			// Store in global cluster store and notify callback manager
+			s.mu.Lock()
+			s.globalClusterStore[req.Name] = clusterResource
+			s.mu.Unlock()
+
+			// Update callback manager's global store
+			if s.callbackManager != nil {
+				s.callbackManager.UpdateGlobalCluster(req.Name, clusterResource)
+			}
+
+			log.Printf("Added cluster %s to global store", req.Name)
+		}
+		resource = clusterResource
 	case resourcev3.RouteType:
-		targetCache = s.routeCache
 		resource, err = s.deserializeRoute(req.Data)
+		if err == nil {
+			err = s.routeCache.UpdateResource(req.Name, resource)
+		}
 	case resourcev3.EndpointType:
-		targetCache = s.endpointCache
 		resource, err = s.deserializeEndpoint(req.Data)
+		if err == nil {
+			err = s.endpointCache.UpdateResource(req.Name, resource)
+		}
 	case resourcev3.VirtualHostType:
-		targetCache = s.virtualHostCache
 		resource, err = s.deserializeVirtualHost(req.Data)
+		if err == nil {
+			err = s.virtualHostCache.UpdateResource(req.Name, resource)
+		}
 	default:
 		log.Printf("DEBUG: Unsupported resource type: %s", req.TypeUrl)
 		return &pb.UpdateResourceResponse{
@@ -78,48 +106,16 @@ func (s *ResourceManagerService) UpdateResource(ctx context.Context, req *pb.Upd
 	}
 
 	if err != nil {
-		log.Printf("DEBUG: Deserialization failed: %v", err)
+		log.Printf("DEBUG: Failed to process resource: %v", err)
 		return &pb.UpdateResourceResponse{
 			Success: false,
-			Message: fmt.Sprintf("Failed to deserialize resource: %v", err),
+			Message: fmt.Sprintf("Failed to process resource: %v", err),
 		}, nil
 	}
 
-	
-	// Update the cache
-	if err := targetCache.UpdateResource(req.Name, resource); err != nil {
-		return &pb.UpdateResourceResponse{
-			Success: false,
-			Message: fmt.Sprintf("Failed to update cache: %v", err),
-		}, nil
-	}
-
-
-	// Handle wildcard node update if requested
-	if req.WildcardNodeUpdate {
-		nodeID := req.NodeId
-		if nodeID == "" {
-			nodeID = "test-id" // Default node ID
-		}
-		
-		
-		// Create a map with this single resource
-		resources := map[string]struct{}{
-			req.Name: {},
-		}
-		
-		if err := targetCache.UpdateWilcardResourcesForNode(nodeID, resources); err != nil {
-			return &pb.UpdateResourceResponse{
-				Success: false,
-				Message: fmt.Sprintf("Failed to update wildcard resources for node: %v", err),
-			}, nil
-		}
-		
-	}
-	
 	// Log cache state for debugging
 	s.logCacheState()
-	
+
 	return &pb.UpdateResourceResponse{
 		Success: true,
 		Message: fmt.Sprintf("Successfully updated resource %s in cache", req.Name),
@@ -128,20 +124,23 @@ func (s *ResourceManagerService) UpdateResource(ctx context.Context, req *pb.Upd
 
 // DeleteResource handles resource deletion requests
 func (s *ResourceManagerService) DeleteResource(ctx context.Context, req *pb.DeleteResourceRequest) (*pb.DeleteResourceResponse, error) {
-	// Determine which cache to use based on TypeURL
-	var targetCache *xdscache.LinearCache
-
+	// Handle deletion based on resource type
+	var err error
 	switch req.TypeUrl {
 	case resourcev3.ListenerType:
-		targetCache = s.listenerCache
+		err = s.listenerCache.DeleteResource(req.Name)
 	case resourcev3.ClusterType:
-		targetCache = s.clusterCache
+		// Remove from global cluster store
+		s.mu.Lock()
+		delete(s.globalClusterStore, req.Name)
+		s.mu.Unlock()
+		log.Printf("Removed cluster %s from global store", req.Name)
 	case resourcev3.RouteType:
-		targetCache = s.routeCache
+		err = s.routeCache.DeleteResource(req.Name)
 	case resourcev3.EndpointType:
-		targetCache = s.endpointCache
+		err = s.endpointCache.DeleteResource(req.Name)
 	case resourcev3.VirtualHostType:
-		targetCache = s.virtualHostCache
+		err = s.virtualHostCache.DeleteResource(req.Name)
 	default:
 		return &pb.DeleteResourceResponse{
 			Success: false,
@@ -149,11 +148,10 @@ func (s *ResourceManagerService) DeleteResource(ctx context.Context, req *pb.Del
 		}, nil
 	}
 
-	// Delete from the cache
-	if err := targetCache.DeleteResource(req.Name); err != nil {
+	if err != nil {
 		return &pb.DeleteResourceResponse{
 			Success: false,
-			Message: fmt.Sprintf("Failed to delete from cache: %v", err),
+			Message: fmt.Sprintf("Failed to delete resource: %v", err),
 		}, nil
 	}
 
@@ -220,34 +218,45 @@ func (s *ResourceManagerService) deserializeVirtualHost(data []byte) (*route.Vir
 
 // logCacheState logs the current state of all caches for debugging
 func (s *ResourceManagerService) logCacheState() {
-	
-	// Get resources from each cache
+
+	// Get resources from LinearCaches
 	listenerResources := s.listenerCache.GetResources()
-	clusterResources := s.clusterCache.GetResources()
 	routeResources := s.routeCache.GetResources()
 	endpointResources := s.endpointCache.GetResources()
 	vhostResources := s.virtualHostCache.GetResources()
-	
+
 	log.Printf("DEBUG: Listeners: %d resources", len(listenerResources))
 	for name := range listenerResources {
 		log.Printf("DEBUG:   - Listener: %s", name)
 	}
-	
-	log.Printf("DEBUG: Clusters: %d resources", len(clusterResources))
-	for name := range clusterResources {
+
+	// Log global cluster store
+	s.mu.RLock()
+	log.Printf("DEBUG: Global Clusters: %d resources", len(s.globalClusterStore))
+	for name := range s.globalClusterStore {
 		log.Printf("DEBUG:   - Cluster: %s", name)
 	}
-	
+	s.mu.RUnlock()
+
+	// Log cluster snapshots
+	log.Printf("DEBUG: Cluster Snapshots: %d nodes", len(s.clusterCache.GetStatusKeys()))
+	for _, nodeID := range s.clusterCache.GetStatusKeys() {
+		if snapshot, err := s.clusterCache.GetSnapshot(nodeID); err == nil {
+			clusters := snapshot.GetResources(resourcev3.ClusterType)
+			log.Printf("DEBUG:   - Node %s: %d clusters", nodeID, len(clusters))
+		}
+	}
+
 	log.Printf("DEBUG: Routes: %d resources", len(routeResources))
 	for name := range routeResources {
 		log.Printf("DEBUG:   - Route: %s", name)
 	}
-	
+
 	log.Printf("DEBUG: Endpoints: %d resources", len(endpointResources))
 	for name := range endpointResources {
 		log.Printf("DEBUG:   - Endpoint: %s", name)
 	}
-	
+
 	log.Printf("DEBUG: VirtualHosts: %d resources", len(vhostResources))
 	for name := range vhostResources {
 		log.Printf("DEBUG:   - VirtualHost: %s", name)
