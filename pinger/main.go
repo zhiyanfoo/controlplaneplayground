@@ -28,7 +28,7 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 
 	// Ping every 5 seconds
-	ticker := time.NewTicker(time.Second/10)
+	ticker := time.NewTicker(time.Second / 10)
 	defer ticker.Stop()
 
 	for {

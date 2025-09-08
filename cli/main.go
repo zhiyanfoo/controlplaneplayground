@@ -19,14 +19,14 @@ import (
 type ResourceConfig struct {
 	TypeURL            string          `json:"type_url"`
 	Name               string          `json:"name"`
-	Data               json.RawMessage `json:"data"` // Use RawMessage to preserve JSON structure
+	Data               json.RawMessage `json:"data"`                           // Use RawMessage to preserve JSON structure
 	WildcardNodeUpdate bool            `json:"wildcard_node_update,omitempty"` // If true, call UpdateWildcardResourcesForNode
 }
 
 // Config represents the overall CLI configuration
 type Config struct {
 	ServerAddress string           `json:"server_address"`
-	NodeID        string           `json:"node_id,omitempty"`        // Default node ID for wildcard updates
+	NodeID        string           `json:"node_id,omitempty"` // Default node ID for wildcard updates
 	Resources     []ResourceConfig `json:"resources"`
 }
 
@@ -68,7 +68,7 @@ func main() {
 	log.Printf("DEBUG: Processing %d resources", len(config.Resources))
 	for i, resource := range config.Resources {
 		log.Printf("DEBUG: Processing resource %d/%d - Type: %s, Name: %s", i+1, len(config.Resources), resource.TypeURL, resource.Name)
-		
+
 		switch *action {
 		case "update":
 			err = updateResource(ctx, client, resource, config)
@@ -112,9 +112,9 @@ func updateResource(ctx context.Context, client pb.ResourceManagerClient, resour
 		return fmt.Errorf("failed to marshal JSON data: %v", err)
 	}
 
-	log.Printf("DEBUG: Sending update request - Type: %s, Name: %s, Data size: %d bytes, WildcardNodeUpdate: %t", 
+	log.Printf("DEBUG: Sending update request - Type: %s, Name: %s, Data size: %d bytes, WildcardNodeUpdate: %t",
 		resource.TypeURL, resource.Name, len(dataBytes), resource.WildcardNodeUpdate)
-	
+
 	// Log first 500 chars of data for debugging
 	dataStr := string(dataBytes)
 	if len(dataStr) > 500 {
@@ -129,11 +129,11 @@ func updateResource(ctx context.Context, client pb.ResourceManagerClient, resour
 	}
 
 	req := &pb.UpdateResourceRequest{
-		TypeUrl:             resource.TypeURL,
-		Name:                resource.Name,
-		Data:                dataBytes, // Send JSON data as bytes
-		WildcardNodeUpdate:  resource.WildcardNodeUpdate,
-		NodeId:              nodeID,
+		TypeUrl:            resource.TypeURL,
+		Name:               resource.Name,
+		Data:               dataBytes, // Send JSON data as bytes
+		WildcardNodeUpdate: resource.WildcardNodeUpdate,
+		NodeId:             nodeID,
 	}
 
 	if resource.WildcardNodeUpdate {

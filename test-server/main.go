@@ -99,7 +99,7 @@ func startGRPCServer(config ServerConfig, wg *sync.WaitGroup) {
 	}
 
 	fmt.Printf("%s (gRPC) listening at %v\n", config.Name, lis.Addr())
-	
+
 	s := grpc.NewServer()
 	testpb.RegisterTestServiceServer(s, &server{message: config.Message, alwaysFail: config.AlwaysFail})
 	reflection.Register(s)
@@ -113,14 +113,14 @@ func startHTTPServer(config ServerConfig, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
-	
+
 	http.HandleFunc("/test/sayhello", func(w http.ResponseWriter, r *http.Request) {
 		handleSayHello(w, r, config.Message)
 	})
 	http.HandleFunc("/health", handleHealth)
 
 	fmt.Printf("%s (HTTP) listening at %s\n", config.Name, addr)
-	
+
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatalf("failed to serve HTTP on %s: %v", addr, err)
 	}
@@ -162,7 +162,7 @@ func main() {
 	}
 
 	fmt.Printf("Started %d servers\n", len(config.Servers))
-	
+
 	// Wait for all servers to finish (they shouldn't unless there's an error)
 	wg.Wait()
 }
