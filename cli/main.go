@@ -65,9 +65,9 @@ func main() {
 	defer cancel()
 
 	// Process each resource based on action
-	log.Printf("DEBUG: Processing %d resources", len(config.Resources))
+	log.Printf("Processing %d resources...", len(config.Resources))
 	for i, resource := range config.Resources {
-		log.Printf("DEBUG: Processing resource %d/%d - Type: %s, Name: %s", i+1, len(config.Resources), resource.TypeURL, resource.Name)
+		// Processing resource
 
 		switch *action {
 		case "update":
@@ -112,15 +112,9 @@ func updateResource(ctx context.Context, client pb.ResourceManagerClient, resour
 		return fmt.Errorf("failed to marshal JSON data: %v", err)
 	}
 
-	log.Printf("DEBUG: Sending update request - Type: %s, Name: %s, Data size: %d bytes, WildcardNodeUpdate: %t",
-		resource.TypeURL, resource.Name, len(dataBytes), resource.WildcardNodeUpdate)
+	// Sending update request
 
-	// Log first 500 chars of data for debugging
-	dataStr := string(dataBytes)
-	if len(dataStr) > 500 {
-		dataStr = dataStr[:500] + "..."
-	}
-	log.Printf("DEBUG: Request data: %s", dataStr)
+	// Request data prepared
 
 	// Default node ID
 	nodeID := "test-id"
@@ -145,7 +139,7 @@ func updateResource(ctx context.Context, client pb.ResourceManagerClient, resour
 		return fmt.Errorf("gRPC call failed: %v", err)
 	}
 
-	log.Printf("DEBUG: Server response - Success: %t, Message: %s", resp.Success, resp.Message)
+	// Response received
 
 	if !resp.Success {
 		return fmt.Errorf("server returned error: %s", resp.Message)

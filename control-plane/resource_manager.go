@@ -79,7 +79,7 @@ func (s *ResourceManagerService) UpdateResource(ctx context.Context, req *pb.Upd
 				s.callbackManager.UpdateGlobalCluster(req.Name, clusterResource)
 			}
 
-			log.Printf("Added cluster %s to global store", req.Name)
+			// Cluster added to global store (logged in summary)
 		}
 		resource = clusterResource
 	case resourcev3.RouteType:
@@ -106,7 +106,6 @@ func (s *ResourceManagerService) UpdateResource(ctx context.Context, req *pb.Upd
 	}
 
 	if err != nil {
-		log.Printf("DEBUG: Failed to process resource: %v", err)
 		return &pb.UpdateResourceResponse{
 			Success: false,
 			Message: fmt.Sprintf("Failed to process resource: %v", err),
@@ -134,7 +133,7 @@ func (s *ResourceManagerService) DeleteResource(ctx context.Context, req *pb.Del
 		s.mu.Lock()
 		delete(s.globalClusterStore, req.Name)
 		s.mu.Unlock()
-		log.Printf("Removed cluster %s from global store", req.Name)
+		// Cluster removed from global store
 	case resourcev3.RouteType:
 		err = s.routeCache.DeleteResource(req.Name)
 	case resourcev3.EndpointType:
@@ -216,49 +215,22 @@ func (s *ResourceManagerService) deserializeVirtualHost(data []byte) (*route.Vir
 	return &vh, nil
 }
 
-// logCacheState logs the current state of all caches for debugging
+// logCacheState logs a summary of cache contents
 func (s *ResourceManagerService) logCacheState() {
-
 	// Get resources from LinearCaches
 	listenerResources := s.listenerCache.GetResources()
 	routeResources := s.routeCache.GetResources()
 	endpointResources := s.endpointCache.GetResources()
 	vhostResources := s.virtualHostCache.GetResources()
 
-	log.Printf("DEBUG: Listeners: %d resources", len(listenerResources))
-	for name := range listenerResources {
-		log.Printf("DEBUG:   - Listener: %s", name)
-	}
-
 	// Log global cluster store
 	s.mu.RLock()
-	log.Printf("DEBUG: Global Clusters: %d resources", len(s.globalClusterStore))
-	for name := range s.globalClusterStore {
-		log.Printf("DEBUG:   - Cluster: %s", name)
-	}
+	globalClusterCount := len(s.globalClusterStore)
 	s.mu.RUnlock()
 
 	// Log cluster snapshots
-	log.Printf("DEBUG: Cluster Snapshots: %d nodes", len(s.clusterCache.GetStatusKeys()))
-	for _, nodeID := range s.clusterCache.GetStatusKeys() {
-		if snapshot, err := s.clusterCache.GetSnapshot(nodeID); err == nil {
-			clusters := snapshot.GetResources(resourcev3.ClusterType)
-			log.Printf("DEBUG:   - Node %s: %d clusters", nodeID, len(clusters))
-		}
-	}
+	snapshotNodeCount := len(s.clusterCache.GetStatusKeys())
 
-	log.Printf("DEBUG: Routes: %d resources", len(routeResources))
-	for name := range routeResources {
-		log.Printf("DEBUG:   - Route: %s", name)
-	}
-
-	log.Printf("DEBUG: Endpoints: %d resources", len(endpointResources))
-	for name := range endpointResources {
-		log.Printf("DEBUG:   - Endpoint: %s", name)
-	}
-
-	log.Printf("DEBUG: VirtualHosts: %d resources", len(vhostResources))
-	for name := range vhostResources {
-		log.Printf("DEBUG:   - VirtualHost: %s", name)
-	}
+	log.Printf("Cache summary: Listeners=%d, Routes=%d, Endpoints=%d, VirtualHosts=%d, GlobalClusters=%d, SnapshotNodes=%d",
+		len(listenerResources), len(routeResources), len(endpointResources), len(vhostResources), globalClusterCount, snapshotNodeCount)
 }
