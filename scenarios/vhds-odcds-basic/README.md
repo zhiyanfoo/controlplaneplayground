@@ -24,7 +24,7 @@ Run test backends
 Update control-plane cache
 
 ```
-go run cli/*.go -config scenarios/vhds-odcds/vh1.json -action update
+go run cli/*.go -config scenarios/vhds-odcds-basic/basic-config.json -action update
 ```
 
 Make client call
