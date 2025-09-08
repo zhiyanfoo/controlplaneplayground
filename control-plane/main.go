@@ -620,8 +620,6 @@ func main() {
 	// --- Initialize Empty Caches ---
 	// Resources will be populated via CLI commands
 
-	log.Printf("Initialized empty Linear caches. Use CLI to populate resources.")
-
 	// --- Create MuxCache for ADS (LDS, RDS, CDS, EDS) ---
 	muxCache := &xdscache.MuxCache{
 		Classify: func(req *xdscache.Request) string {

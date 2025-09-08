@@ -70,17 +70,7 @@ func (s *ResourceManagerService) UpdateResource(ctx context.Context, req *pb.Upd
 		if deserErr != nil {
 			err = deserErr
 		} else {
-			// Store in global cluster store and notify callback manager
-			s.mu.Lock()
-			s.globalClusterStore[req.Name] = clusterResource
-			s.mu.Unlock()
-
-			// Update callback manager's global store
-			if s.callbackManager != nil {
-				s.callbackManager.UpdateGlobalCluster(req.Name, clusterResource)
-			}
-
-			// Cluster added to global store (logged in summary)
+			s.callbackManager.UpdateGlobalCluster(req.Name, clusterResource)
 		}
 		resource = clusterResource
 	case resourcev3.RouteType:
@@ -113,7 +103,6 @@ func (s *ResourceManagerService) UpdateResource(ctx context.Context, req *pb.Upd
 		}, nil
 	}
 
-	// Log cache state for debugging
 	s.logCacheState()
 
 	return &pb.UpdateResourceResponse{
@@ -130,18 +119,7 @@ func (s *ResourceManagerService) DeleteResource(ctx context.Context, req *pb.Del
 	case resourcev3.ListenerType:
 		err = s.listenerCache.DeleteResource(req.Name)
 	case resourcev3.ClusterType:
-		log.Printf("DEBUG: Deleting cluster: %s", req.Name)
-		// Remove from global cluster store
-		s.mu.Lock()
-		delete(s.globalClusterStore, req.Name)
-		s.mu.Unlock()
-		log.Printf("DEBUG: Removed cluster %s from global store", req.Name)
-		
-		// Also remove from callback manager's global store
-		if s.callbackManager != nil {
-			s.callbackManager.DeleteGlobalCluster(req.Name)
-		}
-		
+		s.callbackManager.DeleteGlobalCluster(req.Name)
 		// Update all existing node snapshots to remove the deleted cluster
 		for _, nodeID := range s.clusterCache.GetStatusKeys() {
 			if snapshot, err := s.clusterCache.GetSnapshot(nodeID); err == nil {
@@ -159,28 +137,11 @@ func (s *ResourceManagerService) DeleteResource(ctx context.Context, req *pb.Del
 				// Create new snapshot without the deleted cluster
 				// Preserve all other resource types from the original snapshot
 				version := generateSnapshotVersion()
-				
-				// Convert map to slice for other resource types
-				var endpoints, listeners, routes []types.Resource
-				for _, res := range snapshot.GetResources(resourcev3.EndpointType) {
-					endpoints = append(endpoints, res)
-				}
-				for _, res := range snapshot.GetResources(resourcev3.ListenerType) {
-					listeners = append(listeners, res)
-				}
-				for _, res := range snapshot.GetResources(resourcev3.RouteType) {
-					routes = append(routes, res)
-				}
-				
 				resources := map[resourcev3.Type][]types.Resource{
 					resourcev3.ClusterType:  updatedClusters,
-					resourcev3.EndpointType: endpoints,
-					resourcev3.ListenerType: listeners,
-					resourcev3.RouteType:    routes,
 				}
 				
 				if newSnapshot, err := xdscache.NewSnapshot(version, resources); err == nil {
-					log.Printf("DEBUG: Updated snapshot for node %s, removed cluster %s", nodeID, req.Name)
 					s.clusterCache.SetSnapshot(context.Background(), nodeID, newSnapshot)
 				} else {
 					log.Printf("ERROR: Failed to create new snapshot for node %s: %v", nodeID, err)
