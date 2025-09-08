@@ -1,6 +1,6 @@
 # Run the following scripts
 
-You'll eed to run these in seperate tabs
+You'll need to run these in seperate tabs
 
 Run the control-plane
 
@@ -11,13 +11,13 @@ Run the control-plane
 Run envoy
 
 ```
-./run_envoy.sh
+./scripts/run_envoy.sh
 ```
 
 Run test backends
 
 ```
-`./start_test_services.sh
+`./scripts/start_test_services.sh
 ```
 
 
@@ -30,7 +30,7 @@ go run cli/*.go -config scenarios/vhds-odcds/vh1.json -action update
 Make client call
 
 ```
-./make_request.sh
+./scripts/make_request.sh
 ```
 
 The first client call will fail due to a bug in xds. The second one will second.
