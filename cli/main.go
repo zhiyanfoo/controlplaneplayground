@@ -64,11 +64,8 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Process each resource based on action
 	log.Printf("Processing %d resources...", len(config.Resources))
-	for i, resource := range config.Resources {
-		// Processing resource
-
+	for _, resource := range config.Resources {
 		switch *action {
 		case "update":
 			err = updateResource(ctx, client, resource, config)
@@ -145,7 +142,7 @@ func updateResource(ctx context.Context, client pb.ResourceManagerClient, resour
 		return fmt.Errorf("server returned error: %s", resp.Message)
 	}
 
-	fmt.Printf("Update response: %s\n", resp.Message)
+	// Update successful
 	return nil
 }
 
@@ -164,6 +161,6 @@ func deleteResource(ctx context.Context, client pb.ResourceManagerClient, resour
 		return fmt.Errorf("server returned error: %s", resp.Message)
 	}
 
-	fmt.Printf("Delete response: %s\n", resp.Message)
+	// Delete successful
 	return nil
 }
