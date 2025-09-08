@@ -47,7 +47,7 @@ go run cli/*.go -config scenarios/vhds-odcds-cluster-delete/initial-config.json 
 
 ### 6. Delete the cluster
 ```
-go run cli/*.go -config scenarios/vhds-odcds-cluster-delete/cluster-deleted-config.json -action update
+go run cli/*.go -type-url "type.googleapis.com/envoy.config.cluster.v3.Cluster" -name "basic_grpc_cluster" -action delete
 ```
 
 ### 7. Make requests after cluster deletion

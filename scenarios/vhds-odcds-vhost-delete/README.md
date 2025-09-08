@@ -47,7 +47,7 @@ go run cli/*.go -config scenarios/vhds-odcds-vhost-delete/initial-config.json -a
 
 ### 6. Delete the virtual host
 ```
-go run cli/*.go -config scenarios/vhds-odcds-vhost-delete/vhost-deleted-config.json -action update
+go run cli/*.go -type-url "type.googleapis.com/envoy.config.route.v3.VirtualHost" -name "basic_grpc_route/localhost:10000" -action delete
 ```
 
 ### 7. Make requests after virtual host deletion

@@ -35,11 +35,20 @@ func main() {
 		configFile = flag.String("config", "", "Path to JSON configuration file")
 		action     = flag.String("action", "update", "Action to perform: update or delete")
 		serverAddr = flag.String("server", "localhost:18000", "gRPC server address")
+		typeURL    = flag.String("type-url", "", "Resource type URL for direct delete operations")
+		name       = flag.String("name", "", "Resource name for direct delete operations")
 	)
 	flag.Parse()
 
+	// Allow direct deletion without config file
+	if *configFile == "" && *action == "delete" && *typeURL != "" && *name != "" {
+		// Direct deletion mode
+		performDirectDeletion(*serverAddr, *typeURL, *name)
+		return
+	}
+
 	if *configFile == "" {
-		log.Fatal("Please provide a configuration file with -config flag")
+		log.Fatal("Please provide a configuration file with -config flag or use direct delete mode with -type-url and -name")
 	}
 
 	// Read and parse JSON file
@@ -163,4 +172,29 @@ func deleteResource(ctx context.Context, client pb.ResourceManagerClient, resour
 
 	// Delete successful
 	return nil
+}
+
+func performDirectDeletion(serverAddr, typeURL, name string) {
+	// Connect to gRPC server
+	conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("Failed to connect to server: %v", err)
+	}
+	defer conn.Close()
+
+	client := pb.NewResourceManagerClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	resource := ResourceConfig{
+		TypeURL: typeURL,
+		Name:    name,
+	}
+
+	err = deleteResource(ctx, client, resource)
+	if err != nil {
+		log.Printf("ERROR: Failed to delete resource %s: %v", name, err)
+	} else {
+		log.Printf("SUCCESS: Deleted resource: %s (type: %s)", name, typeURL)
+	}
 }

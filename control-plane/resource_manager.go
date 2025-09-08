@@ -17,6 +17,7 @@ import (
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	xdscache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	resourcev3 "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 )
 
@@ -129,11 +130,38 @@ func (s *ResourceManagerService) DeleteResource(ctx context.Context, req *pb.Del
 	case resourcev3.ListenerType:
 		err = s.listenerCache.DeleteResource(req.Name)
 	case resourcev3.ClusterType:
+		log.Printf("DEBUG: Deleting cluster: %s", req.Name)
 		// Remove from global cluster store
 		s.mu.Lock()
 		delete(s.globalClusterStore, req.Name)
 		s.mu.Unlock()
-		// Cluster removed from global store
+		log.Printf("DEBUG: Removed cluster %s from global store", req.Name)
+		
+		// Update all existing node snapshots to remove the deleted cluster
+		for _, nodeID := range s.clusterCache.GetStatusKeys() {
+			if snapshot, err := s.clusterCache.GetSnapshot(nodeID); err == nil {
+				// Get existing clusters from snapshot
+				existingClusters := snapshot.GetResources(resourcev3.ClusterType)
+				
+				// Filter out the deleted cluster
+				var updatedClusters []types.Resource
+				for _, resource := range existingClusters {
+					if cluster, ok := resource.(*cluster.Cluster); ok && cluster.Name != req.Name {
+						updatedClusters = append(updatedClusters, resource)
+					}
+				}
+				
+				// Create new snapshot without the deleted cluster
+				version := generateSnapshotVersion()
+				resources := map[resourcev3.Type][]types.Resource{
+					resourcev3.ClusterType: updatedClusters,
+				}
+				
+				if newSnapshot, err := xdscache.NewSnapshot(version, resources); err == nil {
+					s.clusterCache.SetSnapshot(context.Background(), nodeID, newSnapshot)
+				}
+			}
+		}
 	case resourcev3.RouteType:
 		err = s.routeCache.DeleteResource(req.Name)
 	case resourcev3.EndpointType:
