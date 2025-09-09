@@ -34,33 +34,26 @@ You'll need to run these in separate tabs:
 go run cli/*.go -config scenarios/vhds-odcds-listener-port-change/initial-config.json -action update
 ```
 
-### 5. Make initial requests on port 10000
+### 5. Start persistent client on port 10000 to observe connection behavior
 ```
-./scripts/make_request.sh
+go run pinger/*.go
 ```
 *Note: First request may fail due to xDS timing - this is expected*
 
-```
-./scripts/make_request.sh
-```
-*Should succeed on port 10000*
+*Let this run in the background to observe how the persistent connection behaves during the port change*
 
-### 6. Update configuration to port 10001
+### 6. Update configuration to port 10001 (while pinger is running)
 ```
 go run cli/*.go -config scenarios/vhds-odcds-listener-port-change/updated-config.json -action update
 ```
 
-### 7. Make requests after port change
-```
-./scripts/make_request.sh 10001
-```
-*Should succeed on port 10001*
+*Observe in the pinger output how requests start failing when the port changes*
 
-### 8. Verify old port is no longer accepting connections
+### 7. Start a new client on the updated port
 ```
-./scripts/make_request.sh 10000
+go run pinger/*.go -addr localhost:10001
 ```
-*Should fail - port 10000 no longer active*
+*Should succeed on port 10001 - demonstrates that VHDS/ODCDS works on the new port*
 
 ## Expected Behavior
 

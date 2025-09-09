@@ -33,27 +33,20 @@ You'll need to run these in separate tabs:
 go run cli/*.go -config scenarios/vhds-odcds-lb-policy-change/initial-config.json -action update
 ```
 
-### 5. Make initial requests
+### 5. Start persistent client to observe load balancing behavior
 ```
-./scripts/make_request.sh
+go run pinger/*.go
 ```
 *Note: First request may fail due to xDS timing - this is expected*
 
-```
-./scripts/make_request.sh
-```
-*Should succeed with ROUND_ROBIN load balancing*
+*Let this run in the background to observe how the persistent connection behaves during the load balancing policy change*
 
-### 6. Update configuration to LEAST_REQUEST policy
+### 6. Update configuration to LEAST_REQUEST policy (while pinger is running)
 ```
 go run cli/*.go -config scenarios/vhds-odcds-lb-policy-change/updated-config.json -action update
 ```
 
-### 7. Make requests after policy change
-```
-./scripts/make_request.sh
-```
-*Should succeed with LEAST_REQUEST load balancing*
+*Observe in the pinger output that requests continue to succeed seamlessly with the new load balancing policy, without the gRPC connection being interrupted*
 
 ## Expected Behavior
 

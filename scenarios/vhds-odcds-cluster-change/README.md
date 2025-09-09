@@ -33,27 +33,20 @@ You'll need to run these in separate tabs:
 go run cli/*.go -config scenarios/vhds-odcds-cluster-change/initial-config.json -action update
 ```
 
-### 5. Make initial request
+### 5. Start persistent client to observe connection behavior
 ```
-./scripts/make_request.sh
+go run pinger/*.go
 ```
 *Note: First request may fail due to xDS timing - this is expected*
 
-### 6. Make second request (should succeed with cluster A response)
-```
-./scripts/make_request.sh
-```
+*Let this run in the background to observe how the persistent connection behaves during the cluster change*
 
-### 7. Update configuration to route to cluster B
+### 6. Update configuration to route to cluster B (while pinger is running)
 ```
 go run cli/*.go -config scenarios/vhds-odcds-cluster-change/updated-config.json -action update
 ```
 
-### 8. Make request after cluster change
-```
-./scripts/make_request.sh
-```
-*Should now route to cluster B and return different response*
+*Observe in the pinger output how the responses change from cluster A to cluster B without the gRPC connection being destroyed*
 
 ## Expected Behavior
 

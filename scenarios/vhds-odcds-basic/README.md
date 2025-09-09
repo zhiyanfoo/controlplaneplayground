@@ -27,10 +27,10 @@ Update control-plane cache
 go run cli/*.go -config scenarios/vhds-odcds-basic/basic-config.json -action update
 ```
 
-Make client call
+Make client calls with persistent connection
 
 ```
-./scripts/make_request.sh
+go run pinger/*.go
 ```
 
-The first client call will fail due to a bug in xds. The second one will second.
+The first client call will fail due to a bug in xds. The subsequent ones will succeed. Using the pinger allows you to observe that the persistent gRPC connection is maintained across XDS config changes. Press Ctrl+C to stop.

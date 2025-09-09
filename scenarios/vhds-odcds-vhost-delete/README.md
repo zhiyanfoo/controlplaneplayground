@@ -34,32 +34,20 @@ You'll need to run these in separate tabs:
 go run cli/*.go -config scenarios/vhds-odcds-vhost-delete/initial-config.json -action update
 ```
 
-### 5. Make initial requests (establish virtual host and cluster)
+### 5. Start persistent client to observe virtual host deletion behavior
 ```
-./scripts/make_request.sh
+go run pinger/*.go
 ```
 *Note: First request may fail due to xDS timing - this is expected*
 
-```
-./scripts/make_request.sh
-```
-*Should succeed - virtual host and cluster are established*
+*Let this run in the background to observe how the persistent connection behaves when the virtual host is deleted*
 
-### 6. Delete the virtual host
+### 6. Wait for successful requests, then delete the virtual host (while pinger is running)
 ```
 go run cli/*.go -type-url "type.googleapis.com/envoy.config.route.v3.VirtualHost" -name "basic_grpc_route/localhost:10000" -action delete
 ```
 
-### 7. Make requests after virtual host deletion
-```
-./scripts/make_request.sh
-```
-*Should fail with 404 - virtual host no longer available*
-
-```
-./scripts/make_request.sh
-```
-*Should continue to fail with 404*
+*Observe in the pinger output how requests transition from success to 404 failures, while the gRPC connection itself remains active*
 
 ## Expected Behavior
 

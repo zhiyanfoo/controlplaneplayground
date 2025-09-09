@@ -34,32 +34,20 @@ You'll need to run these in separate tabs:
 go run cli/*.go -config scenarios/vhds-odcds-cluster-delete/initial-config.json -action update
 ```
 
-### 5. Make initial requests (establish cluster)
+### 5. Start persistent client to observe connection behavior during cluster deletion
 ```
-./scripts/make_request.sh
+go run pinger/*.go
 ```
 *Note: First request may fail due to xDS timing - this is expected*
 
-```
-./scripts/make_request.sh
-```
-*Should succeed - cluster is established*
+*Let this run in the background to observe how the persistent connection behaves when the cluster is deleted*
 
-### 6. Delete the cluster
+### 6. Wait for successful requests, then delete the cluster (while pinger is running)
 ```
 go run cli/*.go -type-url "type.googleapis.com/envoy.config.cluster.v3.Cluster" -name "basic_grpc_cluster" -action delete
 ```
 
-### 7. Make requests after cluster deletion
-```
-./scripts/make_request.sh
-```
-*Should fail - cluster no longer available*
-
-```
-./scripts/make_request.sh
-```
-*Should continue to fail*
+*Observe in the pinger output how requests transition from success to failure, while the gRPC connection itself remains active*
 
 ## Expected Behavior
 
