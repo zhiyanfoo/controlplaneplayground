@@ -1,0 +1,36 @@
+{
+  "server_address": "localhost:18000",
+  "resources": [
+    {
+      "type_url": "type.googleapis.com/envoy.config.route.v3.VirtualHost",
+      "name": "basic_grpc_route/localhost:10000",
+      "data": {
+        "name": "grpcvh",
+        "domains": ["*"],
+        "routes": [
+          {
+            "match": {
+              "prefix": "/"
+            },
+            "route": {
+              "cluster": "basic_grpc_cluster2",
+              "timeout": "10s"
+            },
+            "typedPerFilterConfig": {
+              "envoy.filters.http.on_demand": {
+                "@type": "type.googleapis.com/envoy.extensions.filters.http.on_demand.v3.PerRouteConfig",
+                "odcds": {
+                  "source": {
+                    "ads": {},
+                    "resourceApiVersion": "V3"
+                  },
+                  "timeout": "1s"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
