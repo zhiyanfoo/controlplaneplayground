@@ -25,7 +25,8 @@ grpcurl -plaintext \
   -proto "$WORKSPACE_ROOT/testpb/test.proto" \
   -d '{"name": "Test User"}' \
   -connect-timeout 0.2 \
-  "localhost:$PORT" test.TestService/SayHello
+  -v \
+  "localhost:$PORT" test.TestService/SayHello 
 
 if [ $? -eq 0 ]; then
     echo "grpcurl request successful!"
