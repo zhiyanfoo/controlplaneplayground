@@ -3,9 +3,9 @@
   "resources": [
     {
       "type_url": "type.googleapis.com/envoy.config.listener.v3.Listener",
-      "name": "stateful_session_header_listener",
+      "name": "stateful_session_listener",
       "data": {
-        "name": "stateful_session_header_listener",
+        "name": "stateful_session_listener",
         "address": {
           "socket_address": {
             "protocol": "TCP",
@@ -21,14 +21,14 @@
                 "typed_config": {
                   "@type": "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
                   "codec_type": "AUTO",
-                  "stat_prefix": "stateful_session_header_grpc",
+                  "stat_prefix": "stateful_session_grpc",
                   "rds": {
                     "config_source": {
                       "ads": {},
                       "resource_api_version": "V3",
                       "initial_fetch_timeout": "1s"
                     },
-                    "route_config_name": "stateful_session_header_route"
+                    "route_config_name": "stateful_session_route"
                   },
                   "http_filters": [
                     {
@@ -72,7 +72,7 @@
                         "path": "/dev/stdout",
                         "log_format": {
                           "text_format_source": {
-                            "inline_string": "[%START_TIME%] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %GRPC_STATUS%(%GRPC_STATUS_NUMBER%) %BYTES_SENT% %DURATION% CTD %CONNECTION_TERMINATION_DETAILS% URAC %UPSTREAM_REQUEST_ATTEMPT_COUNT% DWBS %DOWNSTREAM_WIRE_BYTES_SENT% USWBR %UPSTREAM_WIRE_BYTES_RECEIVED% UTFR %UPSTREAM_TRANSPORT_FAILURE_REASON% UH %UPSTREAM_HOST% UC %UPSTREAM_CLUSTER% GRPC_MSG %RESP(grpc-message)% SESSION_REQ %REQ(session-header)% SESSION_RESP %RESP(session-header)%\n"
+                            "inline_string": "[%START_TIME%] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %GRPC_STATUS%(%GRPC_STATUS_NUMBER%) %BYTES_SENT% %DURATION% CTD %CONNECTION_TERMINATION_DETAILS% URAC %UPSTREAM_REQUEST_ATTEMPT_COUNT% DWBS %DOWNSTREAM_WIRE_BYTES_SENT% USWBR %UPSTREAM_WIRE_BYTES_RECEIVED% UTFR %UPSTREAM_TRANSPORT_FAILURE_REASON% UH %UPSTREAM_HOST% UC %UPSTREAM_CLUSTER% GRPC_MSG %RESP(grpc-message)% SESSION %REQ(session-header)%\n"
                           }
                         }
                       }
@@ -87,9 +87,9 @@
     },
     {
       "type_url": "type.googleapis.com/envoy.config.route.v3.RouteConfiguration",
-      "name": "stateful_session_header_route",
+      "name": "stateful_session_route",
       "data": {
-        "name": "stateful_session_header_route",
+        "name": "stateful_session_route",
         "vhds": {
           "config_source": {
             "resource_api_version": "V3",
@@ -111,10 +111,10 @@
     },
     {
       "type_url": "type.googleapis.com/envoy.config.cluster.v3.Cluster",
-      "name": "stateful_session_header_cluster",
+      "name": "stateful_session_cluster",
       "wildcard_node_update": false,
       "data": {
-        "name": "stateful_session_header_cluster",
+        "name": "stateful_session_cluster",
         "connect_timeout": "5s",
         "type": "EDS",
         "eds_cluster_config": {
@@ -137,9 +137,9 @@
     },
     {
       "type_url": "type.googleapis.com/envoy.config.endpoint.v3.ClusterLoadAssignment",
-      "name": "stateful_session_header_cluster",
+      "name": "stateful_session_cluster",
       "data": {
-        "cluster_name": "stateful_session_header_cluster",
+        "cluster_name": "stateful_session_cluster",
         "endpoints": [
           {
             "lb_endpoints": [
@@ -172,9 +172,9 @@
     },
     {
       "type_url": "type.googleapis.com/envoy.config.route.v3.VirtualHost",
-      "name": "stateful_session_header_route/localhost:10000",
+      "name": "stateful_session_route/localhost:10000",
       "data": {
-        "name": "stateful_session_header_vh",
+        "name": "stateful_session_vh",
         "domains": ["*"],
         "routes": [
           {
@@ -182,7 +182,7 @@
               "prefix": "/"
             },
             "route": {
-              "cluster": "stateful_session_header_cluster"
+              "cluster": "stateful_session_cluster"
             }
           }
         ]
