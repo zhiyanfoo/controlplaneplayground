@@ -12,7 +12,7 @@ services:
         ipv4_address: 172.20.0.10
 
   envoy:
-    image: envoyproxy/envoy:v1.34-latest
+    image: envoyproxy/envoy:v1.35-latest
     container_name: envoy
     ports:
       - "10000:10000"  # Main proxy port
@@ -67,18 +67,6 @@ services:
         ipv4_address: 172.20.0.35
     ports:
       - "50056:50056"
-
-  # Debug container with network tools
-  debug:
-    build:
-      context: .
-      dockerfile: Dockerfile.debug
-    container_name: debug
-    networks:
-      envoy-net:
-        ipv4_address: 172.20.0.100
-    tty: true
-    stdin_open: true
 
 networks:
   envoy-net:
