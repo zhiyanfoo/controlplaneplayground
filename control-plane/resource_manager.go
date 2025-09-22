@@ -16,8 +16,8 @@ import (
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
-	xdscache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
+	xdscache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	resourcev3 "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 )
 
@@ -125,7 +125,7 @@ func (s *ResourceManagerService) DeleteResource(ctx context.Context, req *pb.Del
 			if snapshot, err := s.clusterCache.GetSnapshot(nodeID); err == nil {
 				// Get existing clusters from snapshot
 				existingClusters := snapshot.GetResources(resourcev3.ClusterType)
-				
+
 				// Filter out the deleted cluster
 				var updatedClusters []types.Resource
 				for _, resource := range existingClusters {
@@ -133,14 +133,14 @@ func (s *ResourceManagerService) DeleteResource(ctx context.Context, req *pb.Del
 						updatedClusters = append(updatedClusters, resource)
 					}
 				}
-				
+
 				// Create new snapshot without the deleted cluster
 				// Preserve all other resource types from the original snapshot
 				version := generateSnapshotVersion()
 				resources := map[resourcev3.Type][]types.Resource{
-					resourcev3.ClusterType:  updatedClusters,
+					resourcev3.ClusterType: updatedClusters,
 				}
-				
+
 				if newSnapshot, err := xdscache.NewSnapshot(version, resources); err == nil {
 					s.clusterCache.SetSnapshot(context.Background(), nodeID, newSnapshot)
 				} else {

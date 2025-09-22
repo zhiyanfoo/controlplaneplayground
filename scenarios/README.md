@@ -10,3 +10,4 @@ Each of these tests are independent
 1. Test deleting the referenced virtual host (after a successful request is made)
 1. Test where the odcds config is set as typed filter config on the route, and the route is
    changed. This will lead to a crash in envoy due to a bug.
+1. Stateful session envelope - Route configuration with stateful session envelope filter for session affinity

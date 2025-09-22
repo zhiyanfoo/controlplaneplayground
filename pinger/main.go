@@ -58,7 +58,7 @@ func main() {
 
 			requestCount++
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			
+
 			start := time.Now()
 			resp, err := client.SayHello(ctx, &testpb.HelloRequest{Name: *name + " #" + strconv.Itoa(requestCount)})
 			duration := time.Since(start)
