@@ -23,5 +23,5 @@ fi
 echo "Starting Envoy with config $WORKSPACE_ROOT/envoy/bootstrap.yaml... (Press Ctrl+C to stop)"
 echo "Using Envoy binary: $ENVOY_PATH"
 $ENVOY_PATH -c "$WORKSPACE_ROOT/envoy/bootstrap.yaml" \
-  --component-log-level dns:info \
+  --log-level debug \
   --concurrency 1

@@ -27,7 +27,7 @@ Run test backends
 Update control-plane cache
 
 ```
-go run cli/*.go -config scenarios/vhds-odcds-stateful-session-header/stateful-session-header-config.json -action update
+go run cli/*.go -config scenarios/vhds-odcds-stateful-session-header/grpc-config.json -action update
 ```
 
 Make client calls with persistent connection
