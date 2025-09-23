@@ -1,0 +1,36 @@
+{
+  "servers": [
+    {
+      "name": "Main",
+      "protocol": "grpc",
+      "host": "0.0.0.0",
+      "port": 50051,
+      "message": "Main",
+      "verbose": true
+    },
+    {
+      "name": "Dyn1",
+      "protocol": "grpc",
+      "host": "0.0.0.0",
+      "port": 50053,
+      "message": "Dyn1",
+      "verbose": true
+    },
+    {
+      "name": "Dyn2",
+      "protocol": "grpc",
+      "host": "0.0.0.0",
+      "port": 50054,
+      "message": "Dyn2",
+      "verbose": true
+    },
+    {
+      "name": "HTTP",
+      "protocol": "http",
+      "host": "0.0.0.0",
+      "port": 50052,
+      "message": "HTTP",
+      "verbose": true
+    }
+  ]
+}

@@ -74,7 +74,7 @@
                         "path": "/dev/stdout",
                         "log_format": {
                           "text_format_source": {
-                            "inline_string": "[%START_TIME%] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %GRPC_STATUS%(%GRPC_STATUS_NUMBER%) %BYTES_SENT% %DURATION% CTD %CONNECTION_TERMINATION_DETAILS% URAC %UPSTREAM_REQUEST_ATTEMPT_COUNT% DWBS %DOWNSTREAM_WIRE_BYTES_SENT% USWBR %UPSTREAM_WIRE_BYTES_RECEIVED% UTFR %UPSTREAM_TRANSPORT_FAILURE_REASON% UH %UPSTREAM_HOST% UC %UPSTREAM_CLUSTER% GRPC_MSG %RESP(grpc-message)% SESSION %REQ(session-envelope)%\n"
+                            "inline_string": "[%START_TIME%] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %GRPC_STATUS%(%GRPC_STATUS_NUMBER%) %BYTES_SENT% %DURATION% %UPSTREAM_HOST% %UPSTREAM_CLUSTER% SESSION_ENVELOPE_REQ=\"%REQ(session-envelope)%\" SESSION_ENVELOPE_RESP=\"%RESP(session-envelope)%\" UPSTREAM_WIRE_SENT=%UPSTREAM_WIRE_BYTES_SENT% UPSTREAM_WIRE_RECV=%UPSTREAM_WIRE_BYTES_RECEIVED% REQ_HEADERS authority=\"%REQ(:authority)%\" method=\"%REQ(:method)%\" path=\"%REQ(:path)%\" content-type=\"%REQ(content-type)%\" RESP_HEADERS session-envelope=\"%RESP(session-envelope)%\" content-type=\"%RESP(content-type)%\"\n"
                           }
                         }
                       }
