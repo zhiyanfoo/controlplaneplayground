@@ -1,0 +1,23 @@
+{
+  "server_address": "localhost:18000",
+  "resources": [
+    {
+      "type_url": "type.googleapis.com/envoy.config.route.v3.VirtualHost",
+      "name": "vhds_crash_route/vhost.first",
+      "data": {
+        "name": "vhds_crash_route/vhost.first",
+        "domains": ["vhost.first"],
+        "routes": [
+          {
+            "match": {
+              "prefix": "/"
+            },
+            "route": {
+              "cluster": "vhds_crash_cluster"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

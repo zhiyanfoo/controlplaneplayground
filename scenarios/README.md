@@ -12,3 +12,4 @@ Each of these tests are independent
    changed. This will lead to a crash in envoy due to a bug.
 1. Stateful session envelope - Route configuration with stateful session envelope filter for session affinity
 1. Stateful session header - Route configuration with stateful session header filter for session affinity
+1. On-demand VHDS recreateStream crash - resolves a missing VHDS host while a buffered HTTP/1 body is over watermark
